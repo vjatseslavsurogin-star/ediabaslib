@@ -194,7 +194,7 @@ namespace BmwDeepObd
             {
                 ("engine",0)=>new[]{"fault_engine"},("engine",1)=>new[]{"live_engine","injectors"},("engine",2)=>new[]{"glow","ima"},("engine",3)=>new[]{"engine","service"},
                 ("gearbox",0)=>new[]{"fault_gearbox"},("gearbox",1)=>new[]{"live_egs"},("gearbox",2)=>new[]{"adaptations"},("gearbox",3)=>new[]{"transmission","service"},
-                ("power",0)=>new[]{"battery_read"},("power",1)=>new[]{"battery_read"},("power",2)=>new[]{"battery_read"},("power",3)=>new[]{"battery"},
+                ("power",0)=>new[]{"battery_read"},("power",3)=>new[]{"battery"},
                 ("chassis",0)=>new[]{"fault_chassis"},("climate",0)=>new[]{"fault_climate"},
                 ("body",0)=>new[]{"fault_body"},("body",1)=>new[]{"ecu_info"},("body",2)=>new[]{"mileage"},("body",3)=>new[]{"cbs"},
                 _=>Array.Empty<string>()
@@ -207,7 +207,7 @@ namespace BmwDeepObd
         }
         private void SearchFunctions()
         {
-            var input=new EditText(this){Hint=T("Search by name or ECU","Название или ECU"),SingleLine=true};
+            var input=new EditText(this){Hint=T("Search by name or ECU","Название или ECU")};input.SetSingleLine(true);
             new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Search functions","Поиск функций")).SetView(input)
                 .SetPositiveButton(T("Search","Найти"),(d,a)=>{
                     string q=(input.Text??"").Trim();
