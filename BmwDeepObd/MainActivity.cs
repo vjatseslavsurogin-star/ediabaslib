@@ -49,7 +49,11 @@ using Java.Interop;
 namespace BmwDeepObd
 {
     [Android.App.Activity(Label = "@string/app_name",
+#if BAVARIAN_USB_BASELINE
+        MainLauncher = false,
+#else
         MainLauncher = true,
+#endif
         Exported = true,
         DirectBootAware = true,
         Name = ActivityCommon.AppNameSpace + "." + nameof(ActivityMain),

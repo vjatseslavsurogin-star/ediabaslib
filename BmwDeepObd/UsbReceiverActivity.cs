@@ -57,7 +57,11 @@ namespace BmwDeepObd
         {
             try
             {
+                #if BAVARIAN_USB_BASELINE
+                Intent intent = new Intent(this, typeof(BavarianHomeActivity));
+#else
                 Intent intent = new Intent(this, typeof(ActivityMain));
+#endif
                 //intent.SetAction(Intent.ActionMain);
                 //intent.AddCategory(Intent.CategoryLauncher);
                 intent.SetFlags(ActivityFlags.SingleTop | ActivityFlags.NewTask | ActivityFlags.ClearTop);

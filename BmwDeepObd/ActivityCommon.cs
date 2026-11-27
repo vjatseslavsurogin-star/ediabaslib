@@ -120,7 +120,7 @@ namespace BmwDeepObd
         public const string BmwBaseDir = "Bmw";
         public const string EcuDirNameBmw = "EcuBmw";
         public const string EcuDirNameVag = "EcuVag";
-        public const string AppNameSpace = "de.holeschak.bmw_deep_obd";
+        public const string AppNameSpace = "org.bavarian.diagnostics";
         public const string ContactMail = "ulrich@holeschak.de";
         public const string VagEndDate = "2017-08";
         public const string MimeTypeAppAny = @"application/*";

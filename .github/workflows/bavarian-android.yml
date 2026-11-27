@@ -1,4 +1,4 @@
-name: Bavarian Android baseline
+name: Bavarian Android build
 
 on:
   push:
@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: usb-baseline-unverified-debug-apk
+          name: bavarian-v04-unverified-debug-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7

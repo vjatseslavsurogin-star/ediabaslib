@@ -1,6 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <resources>
   <style name="MyTheme" parent="Theme.AppCompat">
+    <item name="colorPrimary">#15243A</item>
+    <item name="colorPrimaryDark">#0C1422</item>
+    <item name="colorAccent">#67B3FF</item>
     <item name="dropDownListViewStyle">@style/SpinnerDividerStyle</item>
     <item name="android:dropDownListViewStyle">@style/SpinnerDividerStyle</item>
     <item name="captionBackgroundColor">@color/colorCaptionBackground</item>
@@ -14,6 +17,9 @@
     <item name="gaugeDividerColor">@color/colorGaugeDivider</item>
   </style>
   <style name="MyThemeLight" parent="Theme.AppCompat.Light">
+    <item name="colorPrimary">#23466D</item>
+    <item name="colorPrimaryDark">#15243A</item>
+    <item name="colorAccent">#246DB2</item>
     <item name="dropDownListViewStyle">@style/SpinnerDividerStyle</item>
     <item name="android:dropDownListViewStyle">@style/SpinnerDividerStyle</item>
     <item name="captionBackgroundColor">@color/colorCaptionBackgroundLight</item>
