@@ -281,7 +281,7 @@ namespace BmwDeepObd
                 _readDetails.Enabled=!_busy;
                 _milButton.Enabled=!_busy&&permitted;
                 _clearDde.Enabled=!_busy&&permitted&&_scanIdentities.ContainsKey("d_motor.grp");
-                _clearEgs.Enabled=!_busy&&permitted&&_scanIdentities.ContainsKey("d_egs.grp");
+                _clearEgs.Enabled=!_busy&&permitted&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
                 _historyButton.Enabled=!_busy;
                 if(!_busy)_state.Text=permitted?T("USB ready. Start scan.","USB готов. Начните чтение."):T("Connect one supported USB adapter and grant permission.","Подключите один USB-адаптер и выдайте разрешение.");
                 return;
@@ -412,8 +412,9 @@ namespace BmwDeepObd
                 }
                 if(!IsFinishing&&!IsDestroyed&&_visible)
                 {
-                    SaveHistory(T("Fault scan","Чтение ошибок"),_faultPanel.ExportText(),token.IsCancellationRequested);
+                    bool saved=SaveHistory(T("Fault scan","Чтение ошибок"),_faultPanel.ExportText(),token.IsCancellationRequested);
                     _output.Text=token.IsCancellationRequested?T("Scan incomplete / cancelled.","Сканирование не завершено / отменено."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
+                    if(!saved)_output.Text+="\n"+T("History could not be saved.","История не сохранена.");
                 }
             }
             finally
@@ -516,7 +517,7 @@ namespace BmwDeepObd
         }
         private async Task ClearModuleAsync(string group,string variant,string identity)
         {
-            if(_busy||!_scanIdentities.TryGetValue(group,out var ident)||ident.Identity!=identity||ident.Variant!=variant)return;
+            if(_busy||!_scanIdentities.TryGetValue(group,out var ident)||ident.Identity!=identity||ident.Variant!=variant||!_scanIdentities.TryGetValue("d_motor.grp",out var engine))return;
             var manager=Manager;var device=GetDevice(manager);
             if(device==null||device.DeviceName!=_scanDevice||!manager.HasPermission(device)){Refresh();return;}
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource(TimeSpan.FromSeconds(45));
@@ -524,8 +525,10 @@ namespace BmwDeepObd
             _output.Text=T("Saving pre-clear scan...","Сохранение перед удалением...");Refresh();
             try
             {
-                var before=await Task.Run(()=>Execute(manager,device.DeviceName,group,new[]{"FS_LESEN"},identity,variant,token,false,null,null));
-                string raw=string.Join("\n",before.FaultRows.SelectMany(r=>r.Select(k=>k.Key+": "+k.Value)));
+                var check=await Task.Run(()=>Execute(manager,device.DeviceName,"d_motor.grp",new[]{"STATUS_MOTORDREHZAHL"},engine.Identity,engine.Variant,token,false,null,null));
+                if(check.EngineRpm!=0)throw new IOException("Engine must be stopped; clear blocked");
+                var before=await Task.Run(()=>Execute(manager,device.DeviceName,group,new[]{"FS_LESEN"},identity,variant,token,false,null,null,true));
+                string raw=string.Join("\n",before.FaultRows.SelectMany(r=>r.Select(k=>k.Key+": "+k.Value)))+"\n"+(before.ExtraNote??"")+"\n"+string.Join("\n",before.ExtraDetails.SelectMany(p=>p.Value.SelectMany(r=>r.Select(k=>k.Key+": "+k.Value))));
                 if(!SaveHistory("BEFORE CLEAR "+BavarianScanCatalog.Module(group),raw,false))throw new IOException("Pre-clear backup failed; nothing cleared");
                 token.ThrowIfCancellationRequested();
                 var after=await Task.Run(()=>Execute(manager,device.DeviceName,group,new[]{"CLEAR_CONFIRMED","FS_LESEN"},identity,variant,token,false,null,null));
@@ -616,6 +619,7 @@ namespace BmwDeepObd
             public List<Dictionary<string,string>> FaultRows;
             public Dictionary<int,List<Dictionary<string,string>>> ExtraDetails=new Dictionary<int,List<Dictionary<string,string>>>();
             public string Vin,ExtraNote;
+            public double? EngineRpm;
             public int Ok,Failed;
         }
         private static string Describe(Exception ex)
@@ -712,6 +716,11 @@ namespace BmwDeepObd
                         if(expected!=null&&expected!=result.Identity)throw new IOException("ECU identification changed; reconnect.");
                     }
                     token.ThrowIfCancellationRequested();
+                    if(!live&&variant=="d50m57e0.prg"&&job=="STATUS_MOTORDREHZAHL")
+                    {
+                        var values=data.Where(r=>r.ContainsKey("STAT_MOTORDREHZAHL_WERT")&&r.ContainsKey("STAT_MOTORDREHZAHL_EINH")).ToArray();
+                        if(values.Length==1&&Convert.ToString(values[0]["STAT_MOTORDREHZAHL_EINH"].OpData,CultureInfo.InvariantCulture)=="rpm"&&double.TryParse(Convert.ToString(values[0]["STAT_MOTORDREHZAHL_WERT"].OpData,CultureInfo.InvariantCulture),NumberStyles.Float,CultureInfo.InvariantCulture,out double rpm)&&double.IsFinite(rpm)&&rpm>=0)result.EngineRpm=rpm;
+                    }
                     string report=string.Join("\n",jobLines);
                     if(live&&job!="IDENT")
                     {
