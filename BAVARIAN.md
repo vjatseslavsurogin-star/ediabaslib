@@ -21,3 +21,6 @@ Import legally obtained BMW EDIABAS .PRG and .GRP files from Android's system fi
 
 ## 0.6: language settings
 Bavarian launcher and ECU library have an independent persisted English/Russian UI setting (English default). The inherited diagnostic engine is configured for English; known preview errors use English and raw external exception text is not shown in the preview. Raw ECU job names, DTC identifiers and manufacturer-supplied descriptions are not translated by this feature. A verified English DTC mapping and live ECU testing are still required. System Android dialogs may use the device language.
+
+## 0.7: private preloaded ECU library
+A separately assembled personal APK can carry an authorized ZIP in assets/bavarian_ecu.zip. The launcher imports the approved filenames into private app storage without overwriting existing files, validating size and file header and staging each file. Public CI builds do not contain this ZIP. This feature does not replace the original encrypted Deep OBD package or enable live diagnostics, and is for authorized local data only. Private APK packaging must re-sign the modified APK; a different signing key may require uninstalling the previous debug build (which deletes app data). No actual ECU data is committed to this repository.

@@ -83,7 +83,20 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bavarian-v06-language-preview-apk
+          name: bavarian-v07-ecu-ready-template-apk
           path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Collect APK signing utility for private packaging
+        run: |
+          $jar = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Recurse -Filter apksigner.jar | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $jar) { throw 'Android apksigner.jar not found' }
+          New-Item -ItemType Directory -Force private-tools | Out-Null
+          Copy-Item $jar.FullName private-tools/apksigner.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-signing-tool
+          path: private-tools/apksigner.jar
           if-no-files-found: error
           retention-days: 7

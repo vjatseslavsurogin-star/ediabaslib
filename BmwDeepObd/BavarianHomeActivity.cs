@@ -41,7 +41,7 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  0.6 PREVIEW", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  0.7 PREVIEW", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
             AddButton(T("Language: English / Русский", "Язык: Русский / English"), (s,e) =>
             {
@@ -60,6 +60,7 @@ namespace BmwDeepObd
             AddText(T("DIAGNOSTIC DATA", "ДИАГНОСТИЧЕСКИЕ ДАННЫЕ"), 14, "#67B3FF", 24);
             _ecu = AddText("", 16, "#F2F6FC");
             AddButton(T("Refresh hardware check", "Обновить проверку USB"), (s,e) => RefreshStatus());
+            AddText(BavarianEcuSeed.Initialize(this), 14, "#C2CDDD");
             AddButton(T("Import / inspect local ECU files", "Импорт и просмотр файлов ECU"), (s,e) =>
                 StartActivity(new Intent(this, typeof(BavarianEcuActivity))));
             _diagnostics = AddButton(T("Open diagnostic engine", "Открыть диагностику"), (s,e) =>

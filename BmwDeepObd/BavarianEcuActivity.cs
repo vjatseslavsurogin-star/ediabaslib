@@ -60,6 +60,7 @@ namespace BmwDeepObd
             AddText(T("Only metadata is read. GRP identification and live ECU jobs are disabled here.",
                 "Читаются только метаданные. Идентификация GRP и выполнение команд ECU здесь отключены."), 14);
             _jobs = AddText("", 13);
+            _jobs.Text = BavarianEcuSeed.Initialize(this);
             RefreshFiles();
         }
 
