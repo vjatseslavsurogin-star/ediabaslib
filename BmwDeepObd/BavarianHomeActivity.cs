@@ -42,8 +42,9 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  0.9 PREVIEW", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  1.0 TEST EDITION", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
+            AddText(T("READ ONLY · FIRST VEHICLE TEST", "ТОЛЬКО ЧТЕНИЕ · ПЕРВЫЙ ТЕСТ"), 13, "#67B3FF");
             AddButton(T("Language: English / Русский", "Язык: Русский / English"), (s,e) =>
             {
                 new AndroidX.AppCompat.App.AlertDialog.Builder(this)
@@ -61,9 +62,9 @@ namespace BmwDeepObd
             AddText(T("DIAGNOSTIC DATA", "ДИАГНОСТИЧЕСКИЕ ДАННЫЕ"), 14, "#67B3FF", 24);
             _ecu = AddText("", 16, "#F2F6FC");
             AddButton(T("Refresh hardware check", "Обновить проверку USB"), (s,e) => RefreshStatus());
-            _library = AddButton(T("Import / inspect local ECU files", "Импорт и просмотр файлов ECU"), (s,e) =>
+            _library = AddButton(T("ECU library · offline inspection", "Библиотека ECU · просмотр"), (s,e) =>
                 StartActivity(new Intent(this, typeof(BavarianEcuActivity))));
-            _diagnostics = AddButton(T("Open diagnostic engine", "Открыть диагностику"), (s,e) =>
+            _diagnostics = AddButton(T("Vehicle diagnostics · DDE / EGS", "Диагностика · DDE / EGS"), (s,e) =>
             {
                 StartActivity(new Intent(this, typeof(BavarianVehicleActivity)));
             });
@@ -106,7 +107,8 @@ namespace BmwDeepObd
             string report = await Task.Run(() => BavarianEcuSeed.Initialize(ApplicationContext));
             if (IsFinishing || IsDestroyed) return;
             _ecu.Text = report;
-            _library.Enabled = _diagnostics.Enabled = true;
+            _library.Enabled = true;
+            _diagnostics.Enabled = report.StartsWith("E60 V74 ECU library: 675 / 675 verified", StringComparison.Ordinal);
         }
 
         private void RefreshStatus()
