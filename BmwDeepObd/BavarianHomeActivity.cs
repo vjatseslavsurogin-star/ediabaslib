@@ -20,7 +20,7 @@ namespace BmwDeepObd
         private LinearLayout _body;
         private TextView _usb;
         private TextView _ecu;
-        private Button _diagnostics, _transmission, _developer, _library, _faults, _liveEngine, _liveEgs, _injectors;
+        private Button _diagnostics, _transmission, _developer, _library, _faults, _liveEngine, _liveEgs, _injectors, _vehicleScan;
         private bool _ru;
         private string T(string en, string ru) => _ru ? ru : en;
         private int Dp(int value) => (int)(value * Resources.DisplayMetrics.Density + 0.5f);
@@ -42,7 +42,7 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  1.4 EXTENDED LIVE", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  1.5 VEHICLE SCAN", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
             AddText(T("READ ONLY · FIRST VEHICLE TEST", "ТОЛЬКО ЧТЕНИЕ · ПЕРВЫЙ ТЕСТ"), 13, "#67B3FF");
             AddText(T("CONNECTION","ПОДКЛЮЧЕНИЕ"),13,"#67B3FF",18);
@@ -58,6 +58,7 @@ namespace BmwDeepObd
             Tile(row2,T("DEMO\nOffline dashboard","DEMO\nБез автомобиля"),(s,e)=>StartActivity(new Intent(this,typeof(BavarianDemoActivity))));
             var rowInjector=TileRow();
             _injectors=Tile(rowInjector,T("Cylinder corrections · test","Коррекции цилиндров · тест"),(s,e)=>OpenVehicle("injectors"));
+            _vehicleScan=Tile(rowInjector,T("Vehicle scan\n10 ECU groups · test","Диагностика авто\n10 групп ECU · тест"),(s,e)=>OpenVehicle("vehicle_scan"));
             AddText(T("ADVANCED","ДОПОЛНИТЕЛЬНО"),13,"#67B3FF",24);
             var row3=TileRow();
             _diagnostics=Tile(row3,T("Engine\nECU details","Двигатель\nДанные блока"),(s,e)=>OpenVehicle("engine"));
@@ -72,7 +73,7 @@ namespace BmwDeepObd
                         (dialog as Android.Content.IDialogInterface)?.Dismiss();Recreate();
                     }).Show();
             });
-            _library.Enabled = _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = _liveEngine.Enabled = _liveEgs.Enabled = _injectors.Enabled = false;
+            _library.Enabled = _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = _liveEngine.Enabled = _liveEgs.Enabled = _injectors.Enabled = _vehicleScan.Enabled = false;
             _ = LoadLibraryAsync();
             AddText(T("Experimental read-only vehicle diagnostics. Test while parked; verify the ECU variant first.", "Экспериментальная диагностика только для чтения. Проверяйте на стоящем автомобиле; сначала подтвердите вариант ECU."), 14, "#C2CDDD", 24);
             AddText("Based on Deep OBD / EdiabasLib by Ulrich Holeschak · GPL-3.0", 12, "#C2CDDD", 16);
@@ -134,7 +135,7 @@ namespace BmwDeepObd
             if (IsFinishing || IsDestroyed) return;
             _ecu.Text = report;
             _library.Enabled = true;
-            _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = _liveEngine.Enabled = _liveEgs.Enabled = _injectors.Enabled = report.StartsWith("E60 V74 ECU library: 675 / 675 verified", StringComparison.Ordinal);
+            _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = _liveEngine.Enabled = _liveEgs.Enabled = _injectors.Enabled = _vehicleScan.Enabled = report.StartsWith("E60 V74 ECU library: 675 / 675 verified", StringComparison.Ordinal);
         }
 
         private void RefreshStatus()

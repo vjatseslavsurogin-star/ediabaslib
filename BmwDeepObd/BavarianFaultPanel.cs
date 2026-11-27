@@ -13,7 +13,8 @@ namespace BmwDeepObd
     {
         private sealed class ModuleResult
         {
-            public string Module,Variant,Error;
+            public string Module,Variant,Error,Vin,ExtraNote;
+            public Dictionary<int,List<Dictionary<string,string>>> Details;
             public List<Dictionary<string,string>> Records;
         }
         private readonly bool _ru;
@@ -21,6 +22,7 @@ namespace BmwDeepObd
         private readonly CheckBox _all;
         private readonly LinearLayout _cards;
         private readonly TextView _summary;
+        private string[] _planned=Array.Empty<string>();
         private string T(string en,string ru)=>_ru?ru:en;
         private int Dp(int n)=>(int)(n*Resources.DisplayMetrics.Density+0.5f);
         public BavarianFaultPanel(Context context,bool ru):base(context)
@@ -37,25 +39,32 @@ namespace BmwDeepObd
             var t=new TextView(Context){Text=text,TextSize=size};t.SetTextIsSelectable(true);parent.AddView(t);return t;
         }
         private static string Get(Dictionary<string,string> r,string k)=>r.TryGetValue(k,out string value)?value??"":"";
-        public void BeginScan(){_results.Clear();Render();}
+        public void BeginScan(string[] modules){_planned=modules.ToArray();_results.Clear();Render();}
         public void AddFailure(string module,string error)
         {_results.Add(new ModuleResult{Module=module,Error=error});Render();}
-        public void AddResult(string module,string variant,List<Dictionary<string,string>> rows)
+        internal static List<Dictionary<string,string>> ParseRecords(List<Dictionary<string,string>> rows)
         {
             var records=new List<Dictionary<string,string>>();
             Dictionary<string,string> current=null;
+            string version="";
             foreach(var r in rows??new List<Dictionary<string,string>>())
             {
+                if(r.TryGetValue("F_VERSION",out string vers))version=vers;
                 if(r.ContainsKey("F_HEX_CODE")||(r.ContainsKey("F_ORT_NR")&&(current==null||current.ContainsKey("F_ORT_NR"))))
                 {
                     if(current!=null)records.Add(current);
                     current=new Dictionary<string,string>(r);
+                    if(!current.ContainsKey("F_VERSION")&&!string.IsNullOrEmpty(version))current["F_VERSION"]=version;
                 }
                 else if(current!=null)
                     foreach(var kv in r)if(kv.Key.StartsWith("F_",StringComparison.Ordinal))current[kv.Key]=kv.Value;
             }
             if(current!=null)records.Add(current);
-            _results.Add(new ModuleResult{Module=module,Variant=variant,Records=records});Render();
+            return records;
+        }
+        public void AddResult(string module,string variant,List<Dictionary<string,string>> rows,Dictionary<int,List<Dictionary<string,string>>> details=null,string vin=null,string note=null)
+        {
+            _results.Add(new ModuleResult{Module=module,Variant=variant,Records=ParseRecords(rows),Details=details,Vin=vin,ExtraNote=note});Render();
         }
         private static string Code(Dictionary<string,string> r)
         {
@@ -78,6 +87,7 @@ namespace BmwDeepObd
             if(m.Variant=="gs19a.prg"&&code=="5150")return T("Trailer module CAN message missing","Отсутствует CAN-сообщение от модуля прицепа");
             return Get(f,"F_ORT_TEXT")+"\n"+Get(f,"F_SYMPTOM_TEXT");
         }
+        private static string State(Dictionary<string,string> r)=>Get(r,"F_VERSION")=="2"?Get(r,"F_VORHANDEN_NR"):"";
         private string Status(string value)=>value switch {
             "35"=>T("ACTIVE / STORED","АКТИВНАЯ / СОХРАНЕНА"),
             "33"=>T("STORED / NOT CURRENT","СОХРАНЕНА / НЕ АКТИВНА"),
@@ -87,22 +97,25 @@ namespace BmwDeepObd
         {
             _cards.RemoveAllViews();
             var records=_results.Where(m=>m.Records!=null).SelectMany(m=>m.Records).ToList();
-            _summary.Text=T("Active: ","Активные: ")+records.Count(f=>Get(f,"F_VORHANDEN_NR")=="35")+
-                T(" · Stored: "," · Сохранённые: ")+records.Count(f=>Get(f,"F_VORHANDEN_NR")=="33")+
-                T(" · Other: "," · Остальные: ")+records.Count(f=>Get(f,"F_VORHANDEN_NR")!="35"&&Get(f,"F_VORHANDEN_NR")!="33")+
-                "\n"+T("Modules read: ","Блоков прочитано: ")+_results.Count(m=>m.Records!=null)+"/2";
+            _summary.Text=T("Active: ","Активные: ")+records.Count(f=>State(f)=="35")+
+                T(" · Stored: "," · Сохранённые: ")+records.Count(f=>State(f)=="33")+
+                T(" · Other: "," · Остальные: ")+records.Count(f=>State(f)!="35"&&State(f)!="33")+
+                "\n"+T("Modules read: ","Блоков прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length;
+            foreach(string planned in _planned.Where(p=>!_results.Any(m=>m.Module==p)))TextLine(_cards,planned+" · "+T("Not read yet","Не прочитан"),13);
             foreach(var m in _results)
             {
                 TextLine(_cards,m.Module+(m.Variant==null?"":" · "+m.Variant),18);
                 if(m.Error!=null){TextLine(_cards,T("Read failed: ","Не прочитан: ")+m.Error,14);continue;}
+                if(!string.IsNullOrEmpty(m.Vin))TextLine(_cards,"VIN: "+m.Vin,15);
+                if(!string.IsNullOrEmpty(m.ExtraNote))TextLine(_cards,m.ExtraNote,13);
                 if(m.Records.Count==0)
                 {TextLine(_cards,T("No recognizable records; check raw report.","Распознанных записей нет; проверьте исходный отчёт."),14);continue;}
-                var visible=m.Records.Where(f=>_all.Checked||Get(f,"F_VORHANDEN_NR")!="32")
-                    .OrderBy(f=>Get(f,"F_VORHANDEN_NR")=="35"?0:Get(f,"F_VORHANDEN_NR")=="33"?1:2).ToList();
+                var visible=m.Records.Where(f=>_all.Checked||State(f)!="32")
+                    .OrderBy(f=>State(f)=="35"?0:State(f)=="33"?1:2).ToList();
                 if(visible.Count==0)TextLine(_cards,T("No active, stored or unknown-status records in this response.","Нет активных, сохранённых или неопределённых записей в этом ответе."),14);
                 foreach(var f in visible)
                 {
-                    string code=Code(f),state=Get(f,"F_VORHANDEN_NR");
+                    string code=Code(f),state=State(f);
                     var card=new LinearLayout(Context){Orientation=Orientation.Vertical};
                     card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));card.SetBackgroundColor(Color.Rgb(22,32,49));
                     var lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)};
@@ -111,10 +124,22 @@ namespace BmwDeepObd
                     var status=TextLine(card,Status(state),13);
                     status.SetTextColor(state=="35"?Color.Rgb(255,111,111):state=="33"?Color.Rgb(255,190,92):Color.Rgb(180,192,209));
                     TextLine(card,Description(m,code,f),16).SetTextColor(Color.White);
-                    if(Get(f,"F_WARNUNG_NR")=="49")
+                    if(Get(f,"F_VERSION")=="2"&&Get(f,"F_WARNUNG_NR")=="49")
                         TextLine(card,T("May request a warning lamp; actual MIL state not measured.","Может вызвать контрольную лампу; фактическое состояние MIL не измерено."),13).SetTextColor(Color.Rgb(255,190,92));
                     var details=new Button(Context){Text=T("Technical details","Технические подробности")};card.AddView(details);
                     string original=string.Join("\n",f.Select(k=>k.Key+": "+k.Value));
+                    if(state=="")TextLine(card,Get(f,"F_VORHANDEN_TEXT"),13).SetTextColor(Color.Rgb(180,192,209));
+                    if(int.TryParse(Get(f,"F_ORT_NR"),NumberStyles.Integer,CultureInfo.InvariantCulture,out int codeNum)&&m.Details!=null&&m.Details.TryGetValue(codeNum,out var more)&&more.Count==1)
+                    {
+                        var d=more[0];
+                        if(!string.IsNullOrWhiteSpace(Get(d,"F_PCODE_STRING"))&&Get(d,"F_PCODE_STRING")!="--"&&Get(d,"F_PCODE_STRING")!="??")
+                            TextLine(card,Get(d,"F_PCODE_STRING")+" · "+Get(d,"F_PCODE_TEXT"),14).SetTextColor(Color.White);
+                        if(int.TryParse(Get(d,"F_HFK"),out int count)&&count>=0)
+                            TextLine(card,T("Occurrence count: ","Счётчик возникновения: ")+count,14).SetTextColor(Color.White);
+                        if(long.TryParse(Get(d,"F_UW_KM"),out long km)&&km>=0)
+                            TextLine(card,T("Stored mileage: ","Пробег в памяти: ")+km+" km",14).SetTextColor(Color.White);
+                        original+="\n\nFS_LESEN_DETAIL\n"+string.Join("\n",d.Select(k=>k.Key+": "+k.Value));
+                    }
                     details.Click+=(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(Context).SetTitle(m.Module+" · "+code)
                         .SetMessage(original).SetPositiveButton("OK",(d,a)=>{}).Show();
                 }

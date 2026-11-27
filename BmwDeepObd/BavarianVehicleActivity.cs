@@ -51,7 +51,8 @@ namespace BmwDeepObd
             ["d_egs.grp"]="9d59ca58c01d052fc5680e6f9030ac52a95924a0b60143b4c331f3795ebf7df4"
         };
         private string _group, _resolved;
-        private bool _faultScreen, _dashboard, _injectors;
+        private bool _faultScreen, _fullScan, _dashboard, _injectors;
+        private CheckBox _readDetails;
         private Button _chooseSignals;
         private TextView _selectedSummary;
         private string[] _selectedSignals;
@@ -64,6 +65,7 @@ namespace BmwDeepObd
         private TextView _detected;
         private bool AutoMode => _group != null;
         private static bool VariantMatches(string group,string name) =>
+            BavarianScanCatalog.IsExtended(group)?BavarianScanCatalog.TryVariantHash(group,name,out _):
             Approved.ContainsKey(name) && (group=="d_motor.grp" ? name.StartsWith("d",StringComparison.Ordinal) :
             group=="d_egs.grp" && name.StartsWith("gs19",StringComparison.Ordinal));
         private static readonly string[] EngineJobs =
@@ -106,7 +108,8 @@ namespace BmwDeepObd
             base.OnCreate(savedInstanceState);
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
-            _faultScreen=requested=="faults";
+            _fullScan=requested=="vehicle_scan";
+            _faultScreen=requested=="faults"||_fullScan;
             _injectors=requested=="injectors";
             _dashboard=requested=="live_engine"||requested=="live_egs"||_injectors;
             _group=requested=="engine"||requested=="live_engine"||_injectors?"d_motor.grp":requested=="transmission"||requested=="live_egs"?"d_egs.grp":null;
@@ -126,11 +129,13 @@ namespace BmwDeepObd
             SetContentView(scroll);
             if(_faultScreen)
             {
-                AddText(T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),24);
-                AddText(T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
+                AddText(_fullScan?T("Vehicle scan · E60","Диагностика автомобиля · E60"):T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),24);
+                AddText(_fullScan?T("Experimental scan of 10 ECU groups. Some may be absent or unsupported. Park safely, ignition on.","Экспериментальный опрос 10 групп ECU. Некоторые блоки могут отсутствовать или не поддерживаться. Стоянка, зажигание включено."):T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
                 _state=AddText("",15);
                 _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
-                _scanAll=AddButton(T("Scan DDE + EGS","Прочитать DDE + EGS"),async(s,e)=>await ScanFaultsAsync());
+                _readDetails=new CheckBox(this){Text=T("Extra fault details · DDE/EGS (test)","Подробности ошибок · DDE/EGS (тест)")};
+                _body.AddView(_readDetails);
+                _scanAll=AddButton(_fullScan?T("Scan vehicle","Сканировать автомобиль"):T("Scan DDE + EGS","Прочитать DDE + EGS"),async(s,e)=>await ScanFaultsAsync());
                 AddButton(T("Cancel scan","Остановить сканирование"),(s,e)=>_cancel?.Cancel());
                 _output=AddText("",14);
                 _faultPanel=new BavarianFaultPanel(this,_ru);
@@ -220,7 +225,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.4 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.5 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -262,6 +267,7 @@ namespace BmwDeepObd
             if(_faultScreen)
             {
                 _scanAll.Enabled=!_busy&&permitted;
+                _readDetails.Enabled=!_busy;
                 if(!_busy)_state.Text=permitted?T("USB ready. Start scan.","USB готов. Начните чтение."):T("Connect one supported USB adapter and grant permission.","Подключите один USB-адаптер и выдайте разрешение.");
                 return;
             }
@@ -356,30 +362,35 @@ namespace BmwDeepObd
             try{manager=Manager;device=GetDevice(manager);}
             catch(Exception ex){_output.Text=Describe(ex);return;}
             if(device==null||!manager.HasPermission(device)){Refresh();return;}
-            _faultPanel.BeginScan();
+            string[] targets=_fullScan?BavarianScanCatalog.AllGroups:new[]{"d_motor.grp","d_egs.grp"};
+            bool details=_readDetails.Checked;
+            _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
-            _cancel.CancelAfter(TimeSpan.FromSeconds(60));
+            _cancel.CancelAfter(TimeSpan.FromMinutes(_fullScan?3:1));
             var token=_cancel.Token;
-            Refresh();_output.Text=T("Reading both modules...","Чтение обоих блоков...");
+            Refresh();_output.Text=T("Reading modules...","Чтение блоков...");
             try
             {
-                foreach(string group in new[]{"d_motor.grp","d_egs.grp"})
+                foreach(string group in targets)
                 {
                     if(token.IsCancellationRequested)break;
-                    string module=group=="d_motor.grp"?"DDE":"EGS";
+                    string module=BavarianScanCatalog.Module(group);
+                    _output.Text=T("Reading ","Чтение ")+module;
+                    using var moduleCancel=CancellationTokenSource.CreateLinkedTokenSource(token);
+                    moduleCancel.CancelAfter(TimeSpan.FromSeconds(details&&(group=="d_motor.grp"||group=="d_egs.grp")?30:15));
                     try
                     {
                         Log("START FAULT_SCAN "+group);
-                        var result=await Task.Run(()=>Execute(manager,device.DeviceName,group,new[]{"IDENT","FS_LESEN"},null,null,token,false,null,null));
+                        var result=await Task.Run(()=>Execute(manager,device.DeviceName,group,new[]{"IDENT","FS_LESEN"},null,null,moduleCancel.Token,false,null,null,details,_fullScan));
                         token.ThrowIfCancellationRequested();
                         if(IsFinishing||IsDestroyed||!_visible)break;
-                        _faultPanel.AddResult(module,result.Variant,result.FaultRows);
+                        _faultPanel.AddResult(module,result.Variant,result.FaultRows,result.ExtraDetails,result.Vin,result.ExtraNote);
                     }
                     catch(Exception ex)
                     {
                         Log("FAULT_SCAN FAIL "+group+" "+Describe(ex));
                         if(IsFinishing||IsDestroyed||!_visible)break;
-                        _faultPanel.AddFailure(module,token.IsCancellationRequested?T("Cancelled / timed out","Отменено / тайм-аут"):Describe(ex));
+                        _faultPanel.AddFailure(module,moduleCancel.IsCancellationRequested?T("Cancelled / timed out","Отменено / тайм-аут"):Describe(ex));
                     }
                 }
                 if(!IsFinishing&&!IsDestroyed&&_visible)
@@ -466,6 +477,8 @@ namespace BmwDeepObd
         {
             public string Text,Identity,Variant;
             public List<Dictionary<string,string>> FaultRows;
+            public Dictionary<int,List<Dictionary<string,string>>> ExtraDetails=new Dictionary<int,List<Dictionary<string,string>>>();
+            public string Vin,ExtraNote;
             public int Ok,Failed;
         }
         private static string Describe(Exception ex)
@@ -480,7 +493,7 @@ namespace BmwDeepObd
             if(!string.Equals(Convert.ToHexString(SHA256.HashData(stream)),expectedHash,StringComparison.OrdinalIgnoreCase))
                 throw new IOException("ECU file hash mismatch: "+name);
         }
-        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,string expectedVariant,CancellationToken token,bool live,IProgress<BavarianLiveFrame> progress,string csvPath)
+        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,string expectedVariant,CancellationToken token,bool live,IProgress<BavarianLiveFrame> progress,string csvPath,bool readDetails=false,bool readVin=false)
         {
             if(!TransportLock.Wait(0))throw new InvalidOperationException("Transport busy");
             try
@@ -489,7 +502,9 @@ namespace BmwDeepObd
                 var current=GetDevice(manager);
                 if(current==null||current.DeviceName!=deviceName||!manager.HasPermission(current))throw new IOException("USB changed");
                 bool groupMode=Groups.TryGetValue(name,out string groupHash);
+                if(!groupMode)groupMode=BavarianScanCatalog.TryGroupHash(name,out groupHash);
                 VerifyFile(name,groupMode?groupHash:Approved[name]);
+                if(groupMode)VerifyFile("t_grtb.prg","7b564434408d5256606d26b0f57b50739b7e029ef3cef967748a08eb05717791");
                 using var ediabas=new EdiabasNet();
                 ediabas.SetConfigProperty("EcuPath",Root);
                 if(!groupMode)ediabas.SgbdFileName=name;
@@ -509,7 +524,8 @@ namespace BmwDeepObd
                         token.ThrowIfCancellationRequested();
                         variant=ediabas.SgbdFileName?.ToLowerInvariant()??"";
                         if(!VariantMatches(name,variant))throw new IOException("Detected variant is not approved: "+variant);
-                        VerifyFile(variant,Approved[variant]);
+                        string variantHash=BavarianScanCatalog.IsExtended(name)&&BavarianScanCatalog.TryVariantHash(name,variant,out string scanHash)?scanHash:Approved[variant];
+                        VerifyFile(variant,variantHash);
                         Log("RESOLVE "+name+" -> "+variant+" "+timer.ElapsedMilliseconds+" ms");
                     }
                     catch(Exception ex){Log("RESOLVE FAIL "+name+" "+timer.ElapsedMilliseconds+" ms "+Describe(ex));throw;}
@@ -604,6 +620,50 @@ namespace BmwDeepObd
                     if(token.WaitHandle.WaitOne(200))break;
                 }
                 }while(live&&!token.IsCancellationRequested);
+                if(!live&&result.FaultRows!=null)
+                {
+                    try
+                    {
+                        List<Dictionary<string,string>> ReadAdditional(string job,string arg)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            ediabas.ArgString=arg;ediabas.ArgBinaryStd=null;ediabas.ResultsRequests=string.Empty;
+                            ediabas.ExecuteJob(job);
+                            token.ThrowIfCancellationRequested();
+                            var r=ediabas.ResultSets;
+                            if(r==null||r.Count<2)throw new IOException("No additional ECU results");
+                            var rows=r.Skip(1).Select(row=>row.ToDictionary(k=>k.Key,k=>k.Value.OpData is byte[] bytes?Convert.ToHexString(bytes):Convert.ToString(k.Value.OpData,CultureInfo.InvariantCulture))).ToList();
+                            if(rows.Any(row=>row.TryGetValue("JOB_STATUS",out string status)&&!string.Equals(status,"OKAY",StringComparison.OrdinalIgnoreCase)))throw new IOException("Additional job unsuccessful");
+                            return rows;
+                        }
+                        if(readVin&&name=="d_cas.grp"&&variant=="cas.prg")
+                        {
+                            var vins=ReadAdditional("STATUS_FAHRGESTELLNUMMER","").Where(row=>row.ContainsKey("FGNUMMER")).Select(row=>row["FGNUMMER"]?.Trim()).Distinct().ToArray();
+                            if(vins.Length!=1||vins[0]==null||!System.Text.RegularExpressions.Regex.IsMatch(vins[0],@"^[A-HJ-NPR-Z0-9]{17}$"))throw new IOException("VIN absent or invalid");
+                            result.Vin=vins[0];Log("OK CAS VIN (not logged)");
+                        }
+                        if(readDetails&&(variant=="d50m57e0.prg"||variant=="gs19a.prg"))
+                        {
+                            var codes=BavarianFaultPanel.ParseRecords(result.FaultRows).Where(r=>r.TryGetValue("F_VORHANDEN_NR",out string state)&&(state=="33"||state=="35"))
+                                .Select(r=>r.TryGetValue("F_ORT_NR",out string raw)&&int.TryParse(raw,NumberStyles.Integer,CultureInfo.InvariantCulture,out int code)&&code>0&&code<=65535?code:0)
+                                .Where(code=>code>0).Distinct().ToArray();
+                            foreach(int code in codes.Take(6))
+                            {
+                                var detailRows=ReadAdditional("FS_LESEN_DETAIL",code.ToString(CultureInfo.InvariantCulture));
+                                var match=BavarianFaultPanel.ParseRecords(detailRows).Where(r=>r.TryGetValue("F_ORT_NR",out string value)&&int.TryParse(value,NumberStyles.Integer,CultureInfo.InvariantCulture,out int n)&&n==code).ToList();
+                                if(match.Count!=1)throw new IOException("Detail response did not match requested code "+code.ToString("X4"));
+                                result.ExtraDetails[code]=match;
+                                Log("OK FS_LESEN_DETAIL "+code.ToString("X4")+"\n"+string.Join("\n",match[0].Select(k=>k.Key+": "+k.Value)));
+                            }
+                            if(codes.Length>6)result.ExtraNote="Details limited to first six confirmed records.";
+                        }
+                    }
+                    catch(Exception ex)
+                    {
+                        result.ExtraNote="Additional read incomplete: "+Describe(ex);
+                        Log("EXTRA READ FAIL "+Describe(ex));
+                    }
+                }
                 if(live)Log("LIVE ended "+variant+" jobs="+result.Ok);
                 result.Text=live?"Recorded jobs: "+result.Ok:string.Join("\n",lines);
                 return result;
