@@ -2,7 +2,7 @@
 using System;
 using Android.App;
 using Android.Content;
-using Android.Content.Res;
+using ColorStateList = Android.Content.Res.ColorStateList;
 using Android.Graphics;
 using Android.Graphics.Drawables;
 using Android.Views;
@@ -39,7 +39,7 @@ namespace BmwDeepObd
         }
         internal static void Checkbox(CheckBox b)
         {
-            b.SetTextColor(White);b.ButtonTintList=ColorStateList.ValueOf(Blue.ToArgb());
+            b.SetTextColor(White);b.ButtonTintList=ColorStateList.ValueOf(Blue);
         }
         internal static LinearLayout Shell(Activity a,int selected,bool ru,Action<int> navigate,out LinearLayout body)
         {
