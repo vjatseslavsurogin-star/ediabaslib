@@ -51,6 +51,9 @@ namespace BmwDeepObd
             ["d_egs.grp"]="9d59ca58c01d052fc5680e6f9030ac52a95924a0b60143b4c331f3795ebf7df4"
         };
         private string _group, _resolved;
+        private bool _faultScreen;
+        private Button _scanAll;
+        private BavarianFaultPanel _faultPanel;
         private TextView _detected;
         private bool AutoMode => _group != null;
         private static bool VariantMatches(string group,string name) =>
@@ -96,6 +99,7 @@ namespace BmwDeepObd
             base.OnCreate(savedInstanceState);
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
+            _faultScreen=requested=="faults";
             _group=requested=="engine"?"d_motor.grp":requested=="transmission"?"d_egs.grp":null;
             SupportActionBar?.Hide();
             var scroll=new ScrollView(this){FillViewport=true};
@@ -104,6 +108,22 @@ namespace BmwDeepObd
             _body.SetPadding(Dp(20),Dp(20),Dp(20),Dp(20));
             scroll.AddView(_body);
             SetContentView(scroll);
+            if(_faultScreen)
+            {
+                AddText(T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),24);
+                AddText(T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
+                _state=AddText("",15);
+                _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
+                _scanAll=AddButton(T("Scan DDE + EGS","Прочитать DDE + EGS"),async(s,e)=>await ScanFaultsAsync());
+                AddButton(T("Cancel scan","Остановить сканирование"),(s,e)=>_cancel?.Cancel());
+                _output=AddText("",14);
+                _faultPanel=new BavarianFaultPanel(this,_ru);
+                _body.AddView(_faultPanel);
+                AddButton(T("Share developer report","Поделиться инженерным отчётом"),(s,e)=>ShareReport());
+                _poll=new Java.Lang.Runnable(()=>{if(!_visible)return;Refresh();_handler.PostDelayed(_poll,1000);});
+                Refresh();
+                return;
+            }
             AddText(AutoMode ? (_group=="d_motor.grp"?T("Engine · DDE","Двигатель · DDE"):T("Transmission · EGS","АКПП · EGS")) : T("Developer mode · USB","Инженерный режим · USB"),24);
             AddText("READ ONLY / EXPERIMENTAL",14);
             AddText(AutoMode?T("Park safely, ignition on. Connect one K+DCAN cable. The ECU variant is detected automatically.","Автомобиль должен стоять, зажигание включено. Подключите один K+DCAN. Вариант ECU определяется автоматически."):T("Park safely, ignition on. Select a known ECU variant. Connect only one K+DCAN cable.","Автомобиль должен стоять, зажигание включено. Выберите известный вариант ECU. Подключите один K+DCAN."),15);
@@ -175,7 +195,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.2 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.2.1 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -214,6 +234,12 @@ namespace BmwDeepObd
             }
             catch(Exception){_state.Text="USB check failed.";ResetIdentity();_cancel?.Cancel();}
             _permission.Enabled=!_busy;
+            if(_faultScreen)
+            {
+                _scanAll.Enabled=!_busy&&permitted;
+                if(!_busy)_state.Text=permitted?T("USB ready. Start scan.","USB готов. Начните чтение."):T("Connect one supported USB adapter and grant permission.","Подключите один USB-адаптер и выдайте разрешение.");
+                return;
+            }
             _variant.Enabled=!_busy;
             _ident.Enabled=!_busy&&permitted&&Selected!=null;
             bool identified=permitted&&Selected!=null&&Selected==_identified;
@@ -274,6 +300,49 @@ namespace BmwDeepObd
                 Refresh();
             }
             catch(Exception ex){_output.Text=BavarianLanguage.Error("USB permission request failed",ex);}
+        }
+        private async Task ScanFaultsAsync()
+        {
+            if(_busy)return;
+            UsbManager manager;
+            UsbDevice device;
+            try{manager=Manager;device=GetDevice(manager);}
+            catch(Exception ex){_output.Text=Describe(ex);return;}
+            if(device==null||!manager.HasPermission(device)){Refresh();return;}
+            _faultPanel.BeginScan();
+            _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
+            _cancel.CancelAfter(TimeSpan.FromSeconds(60));
+            var token=_cancel.Token;
+            Refresh();_output.Text=T("Reading both modules...","Чтение обоих блоков...");
+            try
+            {
+                foreach(string group in new[]{"d_motor.grp","d_egs.grp"})
+                {
+                    if(token.IsCancellationRequested)break;
+                    string module=group=="d_motor.grp"?"DDE":"EGS";
+                    try
+                    {
+                        Log("START FAULT_SCAN "+group);
+                        var result=await Task.Run(()=>Execute(manager,device.DeviceName,group,new[]{"IDENT","FS_LESEN"},null,null,token,false,null,null));
+                        token.ThrowIfCancellationRequested();
+                        if(IsFinishing||IsDestroyed||!_visible)break;
+                        _faultPanel.AddResult(module,result.Variant,result.FaultRows);
+                    }
+                    catch(Exception ex)
+                    {
+                        Log("FAULT_SCAN FAIL "+group+" "+Describe(ex));
+                        if(IsFinishing||IsDestroyed||!_visible)break;
+                        _faultPanel.AddFailure(module,token.IsCancellationRequested?T("Cancelled / timed out","Отменено / тайм-аут"):Describe(ex));
+                    }
+                }
+                if(!IsFinishing&&!IsDestroyed&&_visible)
+                    _output.Text=token.IsCancellationRequested?T("Scan incomplete / cancelled.","Сканирование не завершено / отменено."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
+            }
+            finally
+            {
+                _cancel.Dispose();_cancel=null;_busy=false;_activeDevice=null;
+                if(!IsFinishing&&!IsDestroyed)Refresh();
+            }
         }
         private async Task RunAsync(string operation)
         {
@@ -347,6 +416,7 @@ namespace BmwDeepObd
         private sealed class RequestResult
         {
             public string Text,Identity,Variant;
+            public List<Dictionary<string,string>> FaultRows;
             public int Ok,Failed;
         }
         private static string Describe(Exception ex)
@@ -455,6 +525,8 @@ namespace BmwDeepObd
                     }
                     else
                     {
+                        if(job=="FS_LESEN")
+                            result.FaultRows=data.Select(row=>row.ToDictionary(k=>k.Key,k=>k.Value.OpData is byte[] bytes?Convert.ToHexString(bytes):Convert.ToString(k.Value.OpData,CultureInfo.InvariantCulture))).ToList();
                         if(job=="FS_LESEN"&&AutoMode)lines.Clear();
                         if(job=="FS_LESEN"&&AutoMode)
                             lines.Add(BavarianLiveFrame.FormatFaults(data.Select(row=>row.ToDictionary(k=>k.Key,k=>Convert.ToString(k.Value.OpData,CultureInfo.InvariantCulture))),_ru));

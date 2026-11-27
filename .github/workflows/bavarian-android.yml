@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bavarian-v12-live-data-template-apk
+          name: bavarian-v121-faults-template-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7
