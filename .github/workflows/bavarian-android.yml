@@ -92,7 +92,11 @@ jobs:
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zip = [IO.Compression.ZipFile]::OpenRead($apk.FullName)
           try {
-            $abis = @($zip.Entries | ForEach-Object { if ($_.FullName -match '^lib/([^/]+)/[^/]+\.so
+            $abis = @($zip.Entries | ForEach-Object { if ($_.FullName -match '^lib/([^/]+)/[^/]+\.so$') { $Matches[1] } } | Sort-Object -Unique)
+            $expected = if ($env:BAVARIAN_VARIANT -eq 'arm64') { @('arm64-v8a') } else { @('arm64-v8a','armeabi-v7a','x86_64') }
+            if (@(Compare-Object @($expected) @($abis)).Count -ne 0) { throw "Unexpected APK ABIs: $($abis -join ', ')" }
+            "ABIs: $($abis -join ', '); APK bytes: $($apk.Length)" | Out-File artifacts/ABI.txt
+          } finally { $zip.Dispose() }
           Get-FileHash artifacts/*.apk -Algorithm SHA256 | Format-Table | Out-String | Out-File artifacts/SHA256.txt
 
       - uses: actions/upload-artifact@v4
@@ -111,32 +115,6 @@ jobs:
           Copy-Item $jar.FullName private-tools/apksigner.jar
       - uses: actions/upload-artifact@v4
         if: matrix.variant == 'universal'
-        with:
-          name: android-apk-signing-tool
-          path: private-tools/apksigner.jar
-          if-no-files-found: error
-          retention-days: 7
-) { $Matches[1] } } | Sort-Object -Unique)
-            $expected = if ($env:BAVARIAN_VARIANT -eq 'arm64') { @('arm64-v8a') } else { @('arm64-v8a','armeabi-v7a','x86_64') }
-            if (@(Compare-Object $expected $abis).Count -ne 0) { throw "Unexpected APK ABIs: $($abis -join ', ')" }
-            "ABIs: $($abis -join ', ')`nAPK bytes: $($apk.Length)" | Out-File artifacts/ABI.txt
-          } finally { $zip.Dispose() }
-          Get-FileHash artifacts/*.apk -Algorithm SHA256 | Format-Table | Out-String | Out-File artifacts/SHA256.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bavarian-v17-premium-ui-template-apk
-          path: artifacts/
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Collect APK signing utility for private packaging
-        run: |
-          $jar = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Recurse -Filter apksigner.jar | Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $jar) { throw 'Android apksigner.jar not found' }
-          New-Item -ItemType Directory -Force private-tools | Out-Null
-          Copy-Item $jar.FullName private-tools/apksigner.jar
-      - uses: actions/upload-artifact@v4
         with:
           name: android-apk-signing-tool
           path: private-tools/apksigner.jar
