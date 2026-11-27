@@ -45,6 +45,17 @@ namespace BmwDeepObd
             ["gs19b.prg"]="a7fd76d1ca9a7c8947df65d03ee038e995af5f3afc9ab0aa321e37f8f11bb0bd",
             ["gs19d.prg"]="a49b6a6f0d036faaa47a6cc34dcb9d1f3b71affa62f37228dfd841cf28ec5b1e"
         };
+        private static readonly Dictionary<string,string> Groups = new Dictionary<string,string>(StringComparer.Ordinal)
+        {
+            ["d_motor.grp"]="f5646d3147a8e96d6a4c9b40eae746f8f1a0d23e0a7897f94c2583790bbac73a",
+            ["d_egs.grp"]="9d59ca58c01d052fc5680e6f9030ac52a95924a0b60143b4c331f3795ebf7df4"
+        };
+        private string _group, _resolved;
+        private TextView _detected;
+        private bool AutoMode => _group != null;
+        private static bool VariantMatches(string group,string name) =>
+            Approved.ContainsKey(name) && (group=="d_motor.grp" ? name.StartsWith("d",StringComparison.Ordinal) :
+            group=="d_egs.grp" && name.StartsWith("gs19",StringComparison.Ordinal));
         private static readonly string[] EngineJobs =
         {
             "STATUS_MOTORDREHZAHL","STATUS_KUEHLMITTELTEMPERATUR","STATUS_LADEDRUCK_IST",
@@ -75,6 +86,8 @@ namespace BmwDeepObd
         {
             base.OnCreate(savedInstanceState);
             _ru=BavarianLanguage.IsRussian(this);
+            string requested=Intent?.GetStringExtra("bavarian_mode");
+            _group=requested=="engine"?"d_motor.grp":requested=="transmission"?"d_egs.grp":null;
             SupportActionBar?.Hide();
             var scroll=new ScrollView(this){FillViewport=true};
             scroll.SetFitsSystemWindows(true);
@@ -82,9 +95,9 @@ namespace BmwDeepObd
             _body.SetPadding(Dp(20),Dp(20),Dp(20),Dp(20));
             scroll.AddView(_body);
             SetContentView(scroll);
-            AddText(T("Vehicle diagnostics · USB","Диагностика автомобиля · USB"),24);
+            AddText(AutoMode ? (_group=="d_motor.grp"?T("Engine · DDE","Двигатель · DDE"):T("Transmission · EGS","АКПП · EGS")) : T("Developer mode · USB","Инженерный режим · USB"),24);
             AddText("READ ONLY / EXPERIMENTAL",14);
-            AddText(T("Park safely, ignition on. Select a known ECU variant. Connect only one K+DCAN cable.","Автомобиль должен стоять, зажигание включено. Выберите известный вариант ECU. Подключите один K+DCAN."),15);
+            AddText(AutoMode?T("Park safely, ignition on. Connect one K+DCAN cable. The ECU variant is detected automatically.","Автомобиль должен стоять, зажигание включено. Подключите один K+DCAN. Вариант ECU определяется автоматически."):T("Park safely, ignition on. Select a known ECU variant. Connect only one K+DCAN cable.","Автомобиль должен стоять, зажигание включено. Выберите известный вариант ECU. Подключите один K+DCAN."),15);
             _state=AddText("",15);
             _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
             _variant=new Spinner(this);
@@ -92,10 +105,16 @@ namespace BmwDeepObd
             var adapter=new ArrayAdapter<string>(this,Android.Resource.Layout.SimpleSpinnerItem,variants);
             adapter.SetDropDownViewResource(Android.Resource.Layout.SimpleSpinnerDropDownItem);
             _variant.Adapter=adapter;
-            _body.AddView(_variant);
-            _ident=AddButton(T("Identify ECU (IDENT)","Идентификация ECU"),async(s,e)=>await RunAsync("IDENT"));
+            if(!AutoMode)_body.AddView(_variant);
+            _detected=AddText("",14);
+            if(AutoMode)
+            {
+                string last=GetSharedPreferences("bavarian_ident",FileCreationMode.Private)?.GetString(_group,null);
+                _detected.Text=last==null?T("No ECU identified yet.","Блок ещё не определён."):T("Last detected (not verified now): ","Ранее обнаружен (сейчас не проверен): ")+last;
+            }
+            _ident=AddButton(AutoMode?T("Connect / detect ECU","Подключить / определить ECU"):T("Identify ECU (IDENT)","Идентификация ECU"),async(s,e)=>await RunAsync("IDENT"));
             _confirm=new CheckBox(this){Text=T("I checked the identification and selected ECU variant","Я проверил идентификацию и выбранный вариант ECU"),Enabled=false};
-            _body.AddView(_confirm);
+            if(!AutoMode)_body.AddView(_confirm);
             _confirm.CheckedChange+=(s,e)=>Refresh();
             _faults=AddButton(T("Read fault memory","Чтение ошибок"),async(s,e)=>await RunAsync("FS_LESEN"));
             _snapshot=AddButton(T("Read parameters once","Прочитать параметры"),async(s,e)=>await RunAsync("SNAPSHOT"));
@@ -108,13 +127,13 @@ namespace BmwDeepObd
             });
             _output=AddText("",14);
             _poll=new Java.Lang.Runnable(()=>{if(!_visible)return;Refresh();_handler.PostDelayed(_poll,1000);});
-            _variant.ItemSelected+=(s,e)=>{ResetIdentity();Refresh();};
+            if(!AutoMode)_variant.ItemSelected+=(s,e)=>{ResetIdentity();Refresh();};
             Refresh();
         }
 
         protected override void OnResume(){base.OnResume();_visible=true;if(_state!=null)Refresh();if(_poll!=null)_handler.PostDelayed(_poll,1000);}
         protected override void OnStop(){_visible=false;if(_poll!=null)_handler.RemoveCallbacks(_poll);_cancel?.Cancel();ResetIdentity();base.OnStop();}
-        private void ResetIdentity(){_identified=null;_deviceName=null;_fingerprint=null;if(_confirm!=null&&_confirm.Checked)_confirm.Checked=false;}
+        private void ResetIdentity(){bool had=_identified!=null;_identified=null;_deviceName=null;_fingerprint=null;_resolved=null;if(had&&_detected!=null)_detected.Text=T("ECU not currently verified.","Блок сейчас не подтверждён.");if(_confirm!=null&&_confirm.Checked)_confirm.Checked=false;}
         private static readonly object LogLock=new object();
         private void Log(string message)
         {
@@ -140,7 +159,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.0 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.1 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -165,7 +184,7 @@ namespace BmwDeepObd
             var drivers=EdFtdiInterface.GetDriverList(manager);
             return drivers.Count==1 ? drivers[0].Device : null;
         }
-        private string Selected=>_variant?.SelectedItem?.ToString();
+        private string Selected=>_group??_variant?.SelectedItem?.ToString();
         private void Refresh()
         {
             bool permitted=false;
@@ -175,7 +194,7 @@ namespace BmwDeepObd
                 permitted=device!=null && manager.HasPermission(device);
                 if(device==null || device.DeviceName!=_deviceName || !permitted){ResetIdentity();}
                 if(_busy&&(!permitted||device?.DeviceName!=_activeDevice))_cancel?.Cancel();
-                _state.Text=_busy?"Diagnostic request running...":device==null?"Connect exactly one supported USB adapter.":!permitted?"USB detected. Permission required.":_identified==null?"USB permission granted. ECU not identified.":"ECU responded to IDENT. Confirm variant before interpreting results.";
+                _state.Text=_busy?"Diagnostic request running...":device==null?"Connect exactly one supported USB adapter.":!permitted?"USB detected. Permission required.":_identified==null?"USB permission granted. ECU not identified.":(AutoMode?"ECU identified. Read requests enabled.":"ECU responded to IDENT. Confirm variant before interpreting results.");
             }
             catch(Exception){_state.Text="USB check failed.";ResetIdentity();_cancel?.Cancel();}
             _permission.Enabled=!_busy;
@@ -183,7 +202,7 @@ namespace BmwDeepObd
             _ident.Enabled=!_busy&&permitted&&Selected!=null;
             bool identified=permitted&&Selected!=null&&Selected==_identified;
             _confirm.Enabled=!_busy&&identified;
-            bool ready=!_busy&&identified&&_confirm.Checked;
+            bool ready=!_busy&&identified&&(AutoMode||_confirm.Checked);
             _faults.Enabled=ready;_snapshot.Enabled=ready;
             _stats.Text="Jobs: "+_ok+" OK / "+_failed+" failed (this screen)";
         }
@@ -210,28 +229,34 @@ namespace BmwDeepObd
         {
             if(_busy)return;
             string name=Selected;
-            if(name==null || !Approved.ContainsKey(name))return;
+            if(name==null || !(AutoMode?Groups.ContainsKey(name):Approved.ContainsKey(name)))return;
             UsbManager manager; UsbDevice device;
             try { manager=Manager; device=GetDevice(manager); }
             catch(Exception ex) { _output.Text=BavarianLanguage.Error("USB check failed",ex); return; }
             if(device==null || !manager.HasPermission(device)){Refresh();return;}
-            if(operation!="IDENT" && (_identified!=name || _deviceName!=device.DeviceName || !_confirm.Checked || _fingerprint==null))return;
+            if(operation!="IDENT" && (_identified!=name || _deviceName!=device.DeviceName || (!AutoMode&&!_confirm.Checked) || _fingerprint==null || _resolved==null))return;
             if(operation=="IDENT")ResetIdentity();
             string expected=_fingerprint;
+            string expectedVariant=_resolved;
             _activeDevice=device.DeviceName;
-            Log("START "+operation+" PRG="+name+" USB="+device.VendorId.ToString("X4")+":"+device.ProductId.ToString("X4"));
+            Log("START "+operation+" SGBD="+name+" USB="+device.VendorId.ToString("X4")+":"+device.ProductId.ToString("X4"));
             _busy=true;_cancel=new CancellationTokenSource();
             _cancel.CancelAfter(TimeSpan.FromSeconds(45));
             var token=_cancel.Token;
             Refresh();_output.Text="Waiting for ECU response...";
             try
             {
-                string[] jobs=operation=="SNAPSHOT"?(name.StartsWith("gs19",StringComparison.Ordinal)?GearboxJobs:EngineJobs):new[]{operation};
-                var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,expected,token));
+                string[] jobs=operation=="SNAPSHOT"?((name=="d_egs.grp"||name.StartsWith("gs19",StringComparison.Ordinal))?GearboxJobs:EngineJobs):new[]{operation};
+                var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,expected,expectedVariant,token));
                 if(IsFinishing||IsDestroyed||token.IsCancellationRequested)return;
                 _output.Text=result.Text;
                 _ok+=result.Ok;_failed+=result.Failed;
-                if(operation=="IDENT"){_identified=name;_deviceName=device.DeviceName;_fingerprint=result.Identity;}
+                if(operation=="IDENT")
+                {
+                    _identified=name;_deviceName=device.DeviceName;_fingerprint=result.Identity;_resolved=result.Variant;
+                    _detected.Text=T("Detected ECU: ","Определённый блок: ")+result.Variant;
+                    if(AutoMode)GetSharedPreferences("bavarian_ident",FileCreationMode.Private)?.Edit()?.PutString(_group,result.Variant)?.Apply();
+                }
             }
             catch(Exception ex)
             {
@@ -248,7 +273,7 @@ namespace BmwDeepObd
         }
         private sealed class RequestResult
         {
-            public string Text,Identity;
+            public string Text,Identity,Variant;
             public int Ok,Failed;
         }
         private static string Describe(Exception ex)
@@ -257,7 +282,13 @@ namespace BmwDeepObd
             if(ex is IOException || ex is InvalidOperationException)return ex.GetType().Name+": "+ex.Message;
             return BavarianLanguage.Error("Diagnostic request failed",ex);
         }
-        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,CancellationToken token)
+        private void VerifyFile(string name,string expectedHash)
+        {
+            using var stream=File.OpenRead(Path.Combine(Root,name));
+            if(!string.Equals(Convert.ToHexString(SHA256.HashData(stream)),expectedHash,StringComparison.OrdinalIgnoreCase))
+                throw new IOException("ECU file hash mismatch: "+name);
+        }
+        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,string expectedVariant,CancellationToken token)
         {
             if(!TransportLock.Wait(0))throw new InvalidOperationException("Transport busy");
             try
@@ -265,22 +296,35 @@ namespace BmwDeepObd
                 token.ThrowIfCancellationRequested();
                 var current=GetDevice(manager);
                 if(current==null||current.DeviceName!=deviceName||!manager.HasPermission(current))throw new IOException("USB changed");
-                using(var stream=File.OpenRead(Path.Combine(Root,name)))
-                {
-                    string hash=Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-                    if(hash!=Approved[name])throw new IOException("ECU file hash mismatch");
-                }
+                bool groupMode=Groups.TryGetValue(name,out string groupHash);
+                VerifyFile(name,groupMode?groupHash:Approved[name]);
                 using var ediabas=new EdiabasNet();
                 ediabas.SetConfigProperty("EcuPath",Root);
-                ediabas.SgbdFileName=name;
+                if(!groupMode)ediabas.SgbdFileName=name;
                 ediabas.AbortJobFunc=()=>token.IsCancellationRequested;
                 var transport=new EdInterfaceObd();
                 ediabas.EdInterfaceClass=transport;
                 transport.ComPort=EdFtdiInterface.PortId+"0";
                 transport.ConnectParameter=new EdFtdiInterface.ConnectParameterType(manager);
                 using var registration=token.Register(()=>transport.TransmitCancel(true));
-                var lines=new List<string>();
-                var result=new RequestResult();
+                string variant=name;
+                if(groupMode)
+                {
+                    var timer=Stopwatch.StartNew();
+                    try
+                    {
+                        ediabas.ResolveSgbdFile(name);
+                        token.ThrowIfCancellationRequested();
+                        variant=ediabas.SgbdFileName?.ToLowerInvariant()??"";
+                        if(!VariantMatches(name,variant))throw new IOException("Detected variant is not approved: "+variant);
+                        VerifyFile(variant,Approved[variant]);
+                        Log("RESOLVE "+name+" -> "+variant+" "+timer.ElapsedMilliseconds+" ms");
+                    }
+                    catch(Exception ex){Log("RESOLVE FAIL "+name+" "+timer.ElapsedMilliseconds+" ms "+Describe(ex));throw;}
+                }
+                if(expectedVariant!=null&&expectedVariant!=variant)throw new IOException("ECU variant changed; reconnect.");
+                var lines=new List<string>{"ECU: "+variant};
+                var result=new RequestResult{Variant=variant};
                 if(expected!=null)jobs=new[]{"IDENT"}.Concat(jobs).ToArray();
                 foreach(string job in jobs)
                 {
@@ -311,7 +355,7 @@ namespace BmwDeepObd
                     if(job=="IDENT")
                     {
                         result.Identity=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n",jobLines.Skip(1).OrderBy(x=>x,StringComparer.Ordinal)))));
-                        if(expected!=null&&expected!=result.Identity)throw new IOException("ECU identification changed; re-identify manually.");
+                        if(expected!=null&&expected!=result.Identity)throw new IOException("ECU identification changed; reconnect.");
                     }
                     token.ThrowIfCancellationRequested();
                     string report=string.Join("\n",jobLines);
