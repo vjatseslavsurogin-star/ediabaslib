@@ -42,7 +42,7 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  1.1 AUTO IDENT", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  1.2 LIVE DATA", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
             AddText(T("READ ONLY · FIRST VEHICLE TEST", "ТОЛЬКО ЧТЕНИЕ · ПЕРВЫЙ ТЕСТ"), 13, "#67B3FF");
             AddButton(T("Language: English / Русский", "Язык: Русский / English"), (s,e) =>
@@ -70,6 +70,7 @@ namespace BmwDeepObd
                 OpenVehicle("transmission"));
             _developer = AddButton(T("Developer mode · manual PRG", "Инженерный режим · ручной PRG"), (s,e) =>
                 OpenVehicle("developer"));
+            AddButton(T("DEMO · offline live data", "DEMO · автономный Live Data"), (s,e) => StartActivity(new Intent(this, typeof(BavarianDemoActivity))));
             _library.Enabled = _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = false;
             _ = LoadLibraryAsync();
             AddText(T("Experimental read-only vehicle diagnostics. Test while parked; verify the ECU variant first.", "Экспериментальная диагностика только для чтения. Проверяйте на стоящем автомобиле; сначала подтвердите вариант ECU."), 14, "#C2CDDD", 24);

@@ -62,6 +62,15 @@ namespace BmwDeepObd
             "STATUS_LADEDRUCK_SOLL","STATUS_RAILDRUCK_IST","STATUS_RAILDRUCK_SOLL","STATUS_UBATT"
         };
         private static readonly string[] GearboxJobs = { "STATUS_GETRIEBETEMPERATUR", "STATUS_ISTGANG" };
+        private static readonly string[] EngineExtra = { "STATUS_LUFTMASSE_IST", "STATUS_LUFTMASSE_SOLL", "STATUS_LAUFUNRUHE_LLR_MENGE", "STATUS_ATMOSPHAERENDRUCK", "STATUS_ANSAUGLUFTTEMPERATUR" };
+        private static readonly string[] GearboxExtra = { "STATUS_WH_POSITION", "STATUS_GETRIEBEPOSITION", "STATUS_TURBINENDREHZAHL", "STATUS_MOTORDREHZAHL", "STATUS_WK" };
+        private Button _live, _stopLive, _extra, _csv;
+        private BavarianLivePanel _panel;
+        private string _csvExport;
+        private bool _liveRunning;
+        private string CsvDir=>Path.Combine(FilesDir.AbsolutePath,"bavarian-csv");
+        private string CsvPrefix=>_group=="d_egs.grp"?"egs":"dde";
+        private const int CsvRequest=611;
         private LinearLayout _body;
         private Spinner _variant;
         private TextView _state, _output;
@@ -118,6 +127,13 @@ namespace BmwDeepObd
             _confirm.CheckedChange+=(s,e)=>Refresh();
             _faults=AddButton(T("Read fault memory","Чтение ошибок"),async(s,e)=>await RunAsync("FS_LESEN"));
             _snapshot=AddButton(T("Read parameters once","Прочитать параметры"),async(s,e)=>await RunAsync("SNAPSHOT"));
+            _live=AddButton(T("Start live data + CSV","Начать Live Data + CSV"),async(s,e)=>await RunAsync("LIVE"));
+            _stopLive=AddButton(T("Stop live data","Остановить Live Data"),(s,e)=>_cancel?.Cancel());
+            _extra=AddButton(T("Extra signals · experimental","Дополнительные сигналы · эксперимент"),async(s,e)=>await RunAsync("EXTRA"));
+            _csv=AddButton(T("Export latest CSV","Сохранить последний CSV"),(s,e)=>ExportCsv());
+            _panel=new BavarianLivePanel(this,_group=="d_egs.grp");
+            _panel.Visibility=ViewStates.Gone;
+            _body.AddView(_panel);
             AddButton(T("Cancel / disconnect","Отмена / отключение"),(s,e)=>{ResetIdentity();_cancel?.Cancel();Refresh();});
             _stats=AddText("",13);
             AddButton(T("Share developer report","Поделиться инженерным отчётом"),(s,e)=>ShareReport());
@@ -159,7 +175,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.1 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.2 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -204,7 +220,41 @@ namespace BmwDeepObd
             _confirm.Enabled=!_busy&&identified;
             bool ready=!_busy&&identified&&(AutoMode||_confirm.Checked);
             _faults.Enabled=ready;_snapshot.Enabled=ready;
+            bool verifiedVariant=_resolved=="d50m57e0.prg"||_resolved=="gs19a.prg";
+            _live.Enabled=ready&&AutoMode&&verifiedVariant;
+            _extra.Enabled=ready&&AutoMode&&verifiedVariant;
+            _stopLive.Enabled=_busy&&_liveRunning;
+            _csv.Enabled=!_busy&&AutoMode&&LatestCsv()!=null;
             _stats.Text="Jobs: "+_ok+" OK / "+_failed+" failed (this screen)";
+        }
+        private string LatestCsv()
+        {
+            try {return Directory.Exists(CsvDir)?Directory.GetFiles(CsvDir,CsvPrefix+"-*.csv").OrderByDescending(x=>x,StringComparer.Ordinal).FirstOrDefault():null;}
+            catch(IOException){return null;}
+        }
+        private void ExportCsv()
+        {
+            if(_busy)return;
+            _csvExport=LatestCsv();
+            if(_csvExport==null)return;
+            var intent=new Intent(Intent.ActionCreateDocument);
+            intent.AddCategory(Intent.CategoryOpenable);intent.SetType("text/csv");
+            intent.PutExtra(Intent.ExtraTitle,Path.GetFileName(_csvExport));
+            StartActivityForResult(intent,CsvRequest);
+        }
+        protected override void OnActivityResult(int requestCode,Result resultCode,Intent data)
+        {
+            base.OnActivityResult(requestCode,resultCode,data);
+            if(requestCode!=CsvRequest||resultCode!=Result.Ok||data?.Data==null||_csvExport==null)return;
+            try
+            {
+                using var input=File.OpenRead(_csvExport);
+                using var output=ContentResolver.OpenOutputStream(data.Data,"wt");
+                if(output==null)throw new IOException("Unable to open CSV destination");
+                input.CopyTo(output);
+                _output.Text=T("CSV exported.","CSV сохранён.");
+            }
+            catch(Exception ex){_output.Text=Describe(ex);}
         }
         private void RequestUsb()
         {
@@ -238,18 +288,41 @@ namespace BmwDeepObd
             if(operation=="IDENT")ResetIdentity();
             string expected=_fingerprint;
             string expectedVariant=_resolved;
+            bool live=operation=="LIVE", extra=operation=="EXTRA";
+            if((live||extra)&&(!AutoMode||(expectedVariant!="d50m57e0.prg"&&expectedVariant!="gs19a.prg")))return;
+            _liveRunning=live;
+            IProgress<BavarianLiveFrame> progress=null;
+            string csvPath=null;
+            if(live)
+            {
+                try
+                {
+                    Directory.CreateDirectory(CsvDir);
+                    if(Directory.GetFiles(CsvDir).Length>=100)throw new IOException("Local session limit reached.");
+                    csvPath=Path.Combine(CsvDir,CsvPrefix+"-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff",CultureInfo.InvariantCulture)+".csv");
+                }
+                catch(Exception ex){_output.Text=Describe(ex);_liveRunning=false;return;}
+                _panel.ResetHistory();
+                _panel.Visibility=ViewStates.Visible;
+                progress=new Progress<BavarianLiveFrame>(frame=>{
+                    if(!IsFinishing&&!IsDestroyed&&_visible&&_liveRunning)_panel.UpdateFrame(frame);
+                });
+            }
+            else _panel.Visibility=ViewStates.Gone;
             _activeDevice=device.DeviceName;
             Log("START "+operation+" SGBD="+name+" USB="+device.VendorId.ToString("X4")+":"+device.ProductId.ToString("X4"));
             _busy=true;_cancel=new CancellationTokenSource();
-            _cancel.CancelAfter(TimeSpan.FromSeconds(45));
+            _cancel.CancelAfter(live?TimeSpan.FromMinutes(10):TimeSpan.FromSeconds(45));
             var token=_cancel.Token;
             Refresh();_output.Text="Waiting for ECU response...";
             try
             {
-                string[] jobs=operation=="SNAPSHOT"?((name=="d_egs.grp"||name.StartsWith("gs19",StringComparison.Ordinal))?GearboxJobs:EngineJobs):new[]{operation};
-                var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,expected,expectedVariant,token));
-                if(IsFinishing||IsDestroyed||token.IsCancellationRequested)return;
-                _output.Text=result.Text;
+                bool gearbox=name=="d_egs.grp"||name.StartsWith("gs19",StringComparison.Ordinal);
+                string[] jobs=live||operation=="SNAPSHOT"?(gearbox?GearboxJobs:EngineJobs):extra?(gearbox?GearboxExtra:EngineExtra):new[]{operation};
+                var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,expected,expectedVariant,token,live,progress,csvPath));
+                if(IsFinishing||IsDestroyed)return;
+                if(token.IsCancellationRequested&&!live)return;
+                _output.Text=live?T("Live session ended. Export CSV to save the readings.","Сессия завершена. Сохрани показания через CSV.")+"\n"+result.Text:result.Text;
                 _ok+=result.Ok;_failed+=result.Failed;
                 if(operation=="IDENT")
                 {
@@ -261,13 +334,13 @@ namespace BmwDeepObd
             catch(Exception ex)
             {
                 ResetIdentity();_failed++;
-                string failure=token.IsCancellationRequested?"Diagnostic request cancelled or timed out.":Describe(ex);
+                string failure=token.IsCancellationRequested?(live?"Live session stopped. Partial CSV is available if samples were received.":"Diagnostic request cancelled or timed out."):Describe(ex);
                 Log("FAIL "+failure);
                 if(!IsFinishing&&!IsDestroyed)_output.Text=failure;
             }
             finally
             {
-                _cancel.Dispose();_cancel=null;_busy=false;_activeDevice=null;
+                _cancel.Dispose();_cancel=null;_busy=false;_activeDevice=null;_liveRunning=false;
                 if(!IsFinishing&&!IsDestroyed)Refresh();
             }
         }
@@ -288,7 +361,7 @@ namespace BmwDeepObd
             if(!string.Equals(Convert.ToHexString(SHA256.HashData(stream)),expectedHash,StringComparison.OrdinalIgnoreCase))
                 throw new IOException("ECU file hash mismatch: "+name);
         }
-        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,string expectedVariant,CancellationToken token)
+        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,string expectedVariant,CancellationToken token,bool live,IProgress<BavarianLiveFrame> progress,string csvPath)
         {
             if(!TransportLock.Wait(0))throw new InvalidOperationException("Transport busy");
             try
@@ -325,11 +398,19 @@ namespace BmwDeepObd
                 if(expectedVariant!=null&&expectedVariant!=variant)throw new IOException("ECU variant changed; reconnect.");
                 var lines=new List<string>{"ECU: "+variant};
                 var result=new RequestResult{Variant=variant};
-                if(expected!=null)jobs=new[]{"IDENT"}.Concat(jobs).ToArray();
-                foreach(string job in jobs)
+                using var csv=live?new StreamWriter(csvPath,false,new UTF8Encoding(false)):null;
+                if(csv!=null){csv.WriteLine(BavarianLiveFrame.CsvHeader);csv.Flush();}
+                var liveTimer=Stopwatch.StartNew();
+                string[] cycleJobs=expected!=null?new[]{"IDENT"}.Concat(jobs).ToArray():jobs;
+                bool firstCycle=true;
+                do
+                {
+                var frame=new BavarianLiveFrame(false,variant);
+                foreach(string job in firstCycle?cycleJobs:jobs)
                 {
                     token.ThrowIfCancellationRequested();
-                    if(job!="IDENT"&&job!="FS_LESEN"&&!EngineJobs.Contains(job)&&!GearboxJobs.Contains(job))throw new InvalidOperationException("Job blocked");
+                    bool allowedExtra=!live&&((variant=="d50m57e0.prg"&&EngineExtra.Contains(job))||(variant=="gs19a.prg"&&GearboxExtra.Contains(job)));
+                    if(job!="IDENT"&&job!="FS_LESEN"&&!EngineJobs.Contains(job)&&!GearboxJobs.Contains(job)&&!allowedExtra)throw new InvalidOperationException("Job blocked");
                     var sw=Stopwatch.StartNew();
                     var jobLines=new List<string>();
                     try
@@ -359,21 +440,53 @@ namespace BmwDeepObd
                     }
                     token.ThrowIfCancellationRequested();
                     string report=string.Join("\n",jobLines);
-                    lines.Add(report+"\nResponse: "+sw.ElapsedMilliseconds+" ms\n");
-                    Log("OK "+job+" "+sw.ElapsedMilliseconds+" ms\n"+report);
+                    if(live&&job!="IDENT")
+                    {
+                        string key="STAT_"+job.Substring(7);
+                        var values=data.Where(r=>r.ContainsKey(key+"_WERT")).ToArray();
+                        if(values.Length!=1)throw new IOException("Expected one numeric value for "+job);
+                        var row=values[0];
+                        string val=Convert.ToString(row[key+"_WERT"].OpData,CultureInfo.InvariantCulture);
+                        string unit=row.ContainsKey(key+"_EINH")?Convert.ToString(row[key+"_EINH"].OpData,CultureInfo.InvariantCulture):"";
+                        if(!double.TryParse(val,NumberStyles.Float,CultureInfo.InvariantCulture,out double numeric)||!double.IsFinite(numeric)||!BavarianLiveFrame.UnitMatches(job,unit))
+                            throw new IOException("Unexpected numeric result or unit for "+job+": "+unit);
+                        var sample=new BavarianSample(job,numeric,unit,DateTimeOffset.UtcNow,sw.ElapsedMilliseconds);
+                        frame.Samples.Add(sample);csv.WriteLine(sample.ToCsv(false,variant));csv.Flush();
+                    }
+                    else
+                    {
+                        if(job=="FS_LESEN"&&AutoMode)lines.Clear();
+                        if(job=="FS_LESEN"&&AutoMode)
+                            lines.Add(BavarianLiveFrame.FormatFaults(data.Select(row=>row.ToDictionary(k=>k.Key,k=>Convert.ToString(k.Value.OpData,CultureInfo.InvariantCulture))),_ru));
+                        else if(!AutoMode||job=="IDENT"||!EngineJobs.Contains(job)&&!GearboxJobs.Contains(job))
+                            lines.Add(report+"\nResponse: "+sw.ElapsedMilliseconds+" ms\n");
+                        else
+                            lines.Add(BavarianLiveFrame.FormatStatus(job,data.Select(row=>row.ToDictionary(k=>k.Key,k=>Convert.ToString(k.Value.OpData,CultureInfo.InvariantCulture))),_ru));
+                        Log("OK "+job+" "+sw.ElapsedMilliseconds+" ms\n"+report);
+                    }
                     result.Ok++;
                     }
                     catch(Exception ex)
                     {
                         Log("FAIL "+job+" "+sw.ElapsedMilliseconds+" ms "+Describe(ex));
-                        if(job=="IDENT"||jobs.Length<=2||token.IsCancellationRequested)throw;
+                        if(live||job=="IDENT"||jobs.Length<=2||token.IsCancellationRequested)throw;
                         // Preserve successful readings; stop on transport errors.
                         if(ex is EdiabasNet.EdiabasNetException || ex is IOException)throw;
                         result.Failed++;
                         lines.Add(job+": "+Describe(ex));
                     }
                 }
-                result.Text=string.Join("\n",lines);
+                if(live)
+                {
+                    frame.ElapsedSeconds=liveTimer.Elapsed.TotalSeconds;
+                    progress?.Report(frame);
+                    if(firstCycle)Log("LIVE first cycle OK "+variant);
+                    firstCycle=false;
+                    if(token.WaitHandle.WaitOne(200))break;
+                }
+                }while(live&&!token.IsCancellationRequested);
+                if(live)Log("LIVE ended "+variant+" jobs="+result.Ok);
+                result.Text=live?"Recorded jobs: "+result.Ok:string.Join("\n",lines);
                 return result;
             }
             finally{TransportLock.Release();}

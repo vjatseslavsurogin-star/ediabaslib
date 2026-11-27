@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bavarian-v11-auto-ident-template-apk
+          name: bavarian-v12-live-data-template-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7
