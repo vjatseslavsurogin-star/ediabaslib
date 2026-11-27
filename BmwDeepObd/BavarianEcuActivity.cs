@@ -23,7 +23,7 @@ namespace BmwDeepObd
     {
         private const int ImportRequest = 510;
         private const long MaxFileBytes = 32L * 1024 * 1024;
-        private const int MaxFiles = 128;
+        private const int MaxFiles = 1024;
         private const long MaxLibraryBytes = 512L * 1024 * 1024;
         private static readonly Regex SafeName = new Regex(@"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}\.(prg|grp)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         private LinearLayout _body;
@@ -60,7 +60,6 @@ namespace BmwDeepObd
             AddText(T("Only metadata is read. GRP identification and live ECU jobs are disabled here.",
                 "Читаются только метаданные. Идентификация GRP и выполнение команд ECU здесь отключены."), 14);
             _jobs = AddText("", 13);
-            _jobs.Text = BavarianEcuSeed.Initialize(this);
             RefreshFiles();
         }
 
@@ -97,7 +96,7 @@ namespace BmwDeepObd
             _files.Adapter = adapter;
             _inspect.Enabled = !_busy && prgs.Length > 0;
             _import.Enabled = !_busy;
-            _status.Text = T("Local files: ", "Локальных файлов: ") + names.Length +
+            _status.Text = T("Local ECU library: ", "Локальная библиотека ECU: ") + names.Length +
                 " (PRG: " + prgs.Length + ", GRP: " + (names.Length - prgs.Length) + ")";
         }
 

@@ -1,6 +1,7 @@
 #if BAVARIAN_USB_BASELINE
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Android.Content;
 using Android.Graphics;
 using Android.Hardware.Usb;
@@ -19,7 +20,7 @@ namespace BmwDeepObd
         private LinearLayout _body;
         private TextView _usb;
         private TextView _ecu;
-        private Button _diagnostics;
+        private Button _diagnostics, _library;
         private bool _ru;
         private string T(string en, string ru) => _ru ? ru : en;
         private int Dp(int value) => (int)(value * Resources.DisplayMetrics.Density + 0.5f);
@@ -41,7 +42,7 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  0.8 PREVIEW", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  0.9 PREVIEW", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
             AddButton(T("Language: English / Русский", "Язык: Русский / English"), (s,e) =>
             {
@@ -60,12 +61,14 @@ namespace BmwDeepObd
             AddText(T("DIAGNOSTIC DATA", "ДИАГНОСТИЧЕСКИЕ ДАННЫЕ"), 14, "#67B3FF", 24);
             _ecu = AddText("", 16, "#F2F6FC");
             AddButton(T("Refresh hardware check", "Обновить проверку USB"), (s,e) => RefreshStatus());
-            AddButton(T("Import / inspect local ECU files", "Импорт и просмотр файлов ECU"), (s,e) =>
+            _library = AddButton(T("Import / inspect local ECU files", "Импорт и просмотр файлов ECU"), (s,e) =>
                 StartActivity(new Intent(this, typeof(BavarianEcuActivity))));
             _diagnostics = AddButton(T("Open diagnostic engine", "Открыть диагностику"), (s,e) =>
             {
                 StartActivity(new Intent(this, typeof(BavarianVehicleActivity)));
             });
+            _library.Enabled = _diagnostics.Enabled = false;
+            _ = LoadLibraryAsync();
             AddText(T("Experimental read-only vehicle diagnostics. Test while parked; verify the ECU variant first.", "Экспериментальная диагностика только для чтения. Проверяйте на стоящем автомобиле; сначала подтвердите вариант ECU."), 14, "#C2CDDD", 24);
             AddText("Based on Deep OBD / EdiabasLib by Ulrich Holeschak · GPL-3.0", 12, "#C2CDDD", 16);
         }
@@ -97,6 +100,15 @@ namespace BmwDeepObd
             return button;
         }
 
+        private async Task LoadLibraryAsync()
+        {
+            _ecu.Text = "Checking local ECU library...";
+            string report = await Task.Run(() => BavarianEcuSeed.Initialize(ApplicationContext));
+            if (IsFinishing || IsDestroyed) return;
+            _ecu.Text = report;
+            _library.Enabled = _diagnostics.Enabled = true;
+        }
+
         private void RefreshStatus()
         {
             if (_usb == null) return;
@@ -116,8 +128,7 @@ namespace BmwDeepObd
             {
                 _usb.Text = "USB enumeration failed.";
             }
-            _ecu.Text = BavarianEcuSeed.Initialize(this);
-            _diagnostics.Enabled = true;
+
         }
     }
 }
