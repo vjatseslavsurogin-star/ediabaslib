@@ -42,7 +42,7 @@ namespace BmwDeepObd
         {
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab){_tab=i;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.0  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
+            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.1  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Инструменты","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Tools","Settings"};
             Text(titles[_tab],30,true,8);
             if(_tab==0)
@@ -96,6 +96,14 @@ namespace BmwDeepObd
             }
             else if(_tab==3)
             {
+                Section(T("Maintenance","Обслуживание"));
+                Route(T("Battery management","Аккумулятор"),T("Registration · IBS · charge history","Регистрация · IBS · история заряда"),()=>Open("battery"));
+                Route(T("CBS service","Сервисные интервалы CBS"),T("Read service data","Чтение интервалов"),()=>Open("cbs"));
+                Route(T("Injector codes","Коды форсунок"),T("Read IMA codes · DDE","Чтение IMA · DDE"),()=>Open("ima"));
+                Section(T("Vehicle checks","Проверка автомобиля"));
+                Route(T("Mileage check","Проверка пробега"),T("DDE · KOMBI · CAS","DDE · KOMBI · CAS"),()=>Open("mileage"));
+                Route(T("Glow system","Свечи накаливания"),T("DDE fault records","Записи ошибок DDE"),()=>Open("glow"));
+                Route(T("ECU information","Информация о блоках"),T("DDE · EGS · KOMBI · CAS","DDE · EGS · KOMBI · CAS"),()=>Open("ecu_info"));
                 Route(T("Fault memory service","Обслуживание памяти ошибок"),T("Read MIL and clear DDE / EGS after a fresh scan","MIL и удаление ошибок после нового чтения"),()=>Open("service"));
                 Route(T("Scan history","История диагностики"),T("Saved local reports","Сохранённые локальные отчёты"),()=>Open("history"),false);
                 Text(T("Fault clearing requires confirmation and engine off.","Удаление ошибок требует подтверждения и остановленного двигателя."),13,false,12);

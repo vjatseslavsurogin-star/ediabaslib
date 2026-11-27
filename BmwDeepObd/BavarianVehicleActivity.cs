@@ -28,7 +28,7 @@ namespace BmwDeepObd
 
     [Activity(Label = "Vehicle diagnostics", Exported = false,
         Name = ActivityCommon.AppNameSpace + "." + nameof(BavarianVehicleActivity))]
-    public class BavarianVehicleActivity : AppCompatActivity
+    public partial class BavarianVehicleActivity : AppCompatActivity
     {
         private static readonly SemaphoreSlim TransportLock = new SemaphoreSlim(1, 1);
         private static readonly Dictionary<string,string> Approved = new Dictionary<string,string>(StringComparer.Ordinal)
@@ -116,6 +116,7 @@ namespace BmwDeepObd
             base.OnCreate(savedInstanceState);
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
+            if(IsMaintenanceMode(requested)){CreateMaintenance(requested);return;}
             _fullScan=requested=="vehicle_scan";
             _serviceScreen=requested=="service"||requested=="history";
             _faultScreen=requested=="faults"||_fullScan||_serviceScreen;
@@ -220,7 +221,7 @@ namespace BmwDeepObd
         }
 
         protected override void OnResume(){base.OnResume();_visible=true;if(_state!=null)Refresh();if(_poll!=null)_handler.PostDelayed(_poll,1000);}
-        protected override void OnStop(){_visible=false;_scanIdentities.Clear();if(_poll!=null)_handler.RemoveCallbacks(_poll);_cancel?.Cancel();ResetIdentity();base.OnStop();}
+        protected override void OnStop(){_maintenanceIdentity=null;_maintenanceReadAt=0;_visible=false;_scanIdentities.Clear();if(_poll!=null)_handler.RemoveCallbacks(_poll);_cancel?.Cancel();ResetIdentity();base.OnStop();}
         private void ResetIdentity(){bool had=_identified!=null;_identified=null;_deviceName=null;_fingerprint=null;_resolved=null;if(had&&_detected!=null)_detected.Text=T("ECU not currently verified.","Блок сейчас не подтверждён.");if(_confirm!=null&&_confirm.Checked)_confirm.Checked=false;}
         private static readonly object LogLock=new object();
         private void Log(string message)
@@ -247,7 +248,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V2.0 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V2.1 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -271,6 +272,7 @@ namespace BmwDeepObd
         private string Selected=>_group??_variant?.SelectedItem?.ToString();
         private void Refresh()
         {
+            if(_maintenanceMode!=null){RefreshMaintenance();return;}
             bool permitted=false;
             try
             {
