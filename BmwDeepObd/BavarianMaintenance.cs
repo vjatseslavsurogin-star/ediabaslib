@@ -21,12 +21,12 @@ namespace BmwDeepObd
         private string _maintenanceMode,_maintenanceIdentity,_maintenanceDevice;
         private long _maintenanceReadAt;
         private Button _maintenanceRead,_maintenanceWrite,_maintenanceStop;
-        private static bool IsMaintenanceMode(string mode)=>mode=="battery"||mode=="cbs"||mode=="ima"||mode=="mileage"||mode=="glow"||mode=="ecu_info";
+        private static bool IsMaintenanceMode(string mode)=>mode=="battery"||mode=="battery_read"||mode=="cbs"||mode=="ima"||mode=="mileage"||mode=="glow"||mode=="ecu_info";
         private void CreateMaintenance(string mode)
         {
             _maintenanceMode=mode;SupportActionBar?.Hide();
-            BavarianUi.Shell(this,3,_ru,i=>{if(_busy){_output.Text=T("Stop the request first.","Сначала остановите запрос.");return;}BavarianUi.NavigateHome(this,i);},out _body);
-            AddText(mode switch {"battery"=>T("Battery management","Аккумулятор"),"cbs"=>T("CBS service","Сервис CBS"),"ima"=>T("Injector codes","Коды форсунок"),"mileage"=>T("Mileage check","Проверка пробега"),"glow"=>T("Glow system","Свечи накаливания"),_=>T("ECU information","Информация ECU")},26);
+            BavarianUi.Shell(this,mode=="battery"?3:1,_ru,i=>{if(_busy){_output.Text=T("Stop the request first.","Сначала остановите запрос.");return;}BavarianUi.NavigateHome(this,i);},out _body);
+            AddText(mode switch {"battery" or "battery_read"=>T("Battery management","Аккумулятор"),"cbs"=>T("CBS service","Сервис CBS"),"ima"=>T("Injector codes","Коды форсунок"),"mileage"=>T("Mileage check","Проверка пробега"),"glow"=>T("Glow system","Свечи накаливания"),_=>T("ECU information","Информация ECU")},26);
             AddText(mode=="battery"?T("DDE 5.0 · IBS · replacement history. Registration only for a newly installed battery of unchanged type and capacity.","DDE 5.0 · IBS · история замен. Регистрация только нового АКБ прежнего типа и ёмкости."):T("Read-only · approved ECU variants. Park safely, ignition on.","Только чтение · подтверждённые варианты ECU. Стоянка, зажигание включено."),14);
             _state=AddText("",14);
             _maintenanceRead=AddButton(T("Read data","Прочитать данные"),async(s,e)=>await MaintenanceAsync(false));BavarianUi.Style(_maintenanceRead,true);
@@ -100,6 +100,7 @@ namespace BmwDeepObd
             var result=new MaintenanceResult();var lines=new List<string>();
             try
             {
+                if(write&&mode!="battery")throw new InvalidOperationException("Write not allowed in read-only mode");
                 var targets=mode=="mileage"||mode=="cbs"?new[]{"d_motor.grp","d_kombi.grp"}:mode=="ecu_info"?new[]{"d_motor.grp","d_egs.grp","d_kombi.grp","d_cas.grp"}:new[]{"d_motor.grp"};
                 foreach(var group in targets)
                 {
@@ -149,7 +150,7 @@ namespace BmwDeepObd
                             if(Field(rows,key+"_EINH")!=unit||!double.TryParse(Field(rows,key+"_WERT"),NumberStyles.Float,CultureInfo.InvariantCulture,out var number)||!double.IsFinite(number))throw new IOException("Unverified field "+key);
                             return number;
                         }
-                        if(mode=="battery")
+                        if(mode=="battery"||mode=="battery_read")
                         {
                             if(variant!="d50m57e0.prg")throw new IOException("DDE 5.0 required");
                             var ibs=Read("IDENT_IBS");var pm1=Read("STATUS_SYSTEMCHECK_PM_INFO_1");var pm2=Read("STATUS_SYSTEMCHECK_PM_INFO_2");var voltage=Read("STATUS_UBATT");
@@ -166,7 +167,7 @@ namespace BmwDeepObd
                             foreach(var row in pm2)foreach(var kv in row.Where(k=>k.Key.StartsWith("STAT_IBS_FEHLERZAEHLER")&&k.Key.EndsWith("_WERT")))lines.Add(kv.Key+": "+kv.Value);
                             if(!write)
                             {
-                                if(!current.Bluetooth&&Number(pm2,"STAT_BATTERIE_KAPAZITAET","Ah")>0&&Number(voltage,"STAT_UBATT","V")>=12.0&&Number(voltage,"STAT_UBATT","V")<=15.0)result.Identity=id;
+                                if(mode=="battery"&&!current.Bluetooth&&Number(pm2,"STAT_BATTERIE_KAPAZITAET","Ah")>0&&Number(voltage,"STAT_UBATT","V")>=12.0&&Number(voltage,"STAT_UBATT","V")<=15.0)result.Identity=id;
                             }
                             else
                             {

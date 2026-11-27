@@ -1,6 +1,7 @@
 #if BAVARIAN_USB_BASELINE
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Android.App;
 using Android.Content;
@@ -21,7 +22,8 @@ namespace BmwDeepObd
         private readonly List<View> _gated=new List<View>();
         private bool _ru,_ready;
         private string _report="";
-        private int _tab;
+        private int _tab,_systemPage;
+        private string _system="";
         private Handler _handler;
         private Java.Lang.Runnable _poll;
         private string T(string en,string ru)=>_ru?ru:en;
@@ -31,20 +33,21 @@ namespace BmwDeepObd
             base.OnCreate(savedInstanceState);SupportActionBar?.Hide();
             _ru=BavarianLanguage.IsRussian(this);BavarianLanguage.EnsureEngineEnglish();
             _tab=savedInstanceState?.GetInt("tab",0)??Intent?.GetIntExtra("bavarian_tab",0)??0;
+            _system=savedInstanceState?.GetString("system")??"";_systemPage=savedInstanceState?.GetInt("system_page",0)??0;
             Render();_handler=new Handler(Looper.MainLooper);_poll=new Java.Lang.Runnable(()=>{RefreshStatus();_handler.PostDelayed(_poll,1000);});
             _=LoadLibraryAsync();
         }
-        protected override void OnNewIntent(Intent intent){base.OnNewIntent(intent);_tab=intent?.GetIntExtra("bavarian_tab",0)??0;Render();}
-        protected override void OnSaveInstanceState(Bundle state){state.PutInt("tab",_tab);base.OnSaveInstanceState(state);}
+        protected override void OnNewIntent(Intent intent){base.OnNewIntent(intent);_tab=intent?.GetIntExtra("bavarian_tab",0)??0;_system="";_systemPage=0;Render();}
+        protected override void OnSaveInstanceState(Bundle state){state.PutInt("tab",_tab);state.PutString("system",_system);state.PutInt("system_page",_systemPage);base.OnSaveInstanceState(state);}
         protected override void OnResume(){base.OnResume();Render();RefreshStatus();if(_poll!=null){_handler.RemoveCallbacks(_poll);_handler.PostDelayed(_poll,1000);}}
         protected override void OnPause(){if(_poll!=null)_handler.RemoveCallbacks(_poll);base.OnPause();}
         private void Render()
         {
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
-            BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab){_tab=i;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.1  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
-            string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Инструменты","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Tools","Settings"};
-            Text(titles[_tab],30,true,8);
+            BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
+            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.2  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
+            string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
+            Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
             {
                 var connection=Card();_usb=BavarianUi.Text(this,"",14,true);connection.AddView(_usb);
@@ -53,7 +56,7 @@ namespace BmwDeepObd
             else
             {
                 _usb=Text("",12,true,8);
-                _usb.Clickable=true;_usb.Click+=(s,e)=>{_tab=0;Render();};
+                _usb.Clickable=true;_usb.Click+=(s,e)=>{_tab=0;_system="";Render();};
             }
             if(_tab==0)
             {
@@ -75,40 +78,39 @@ namespace BmwDeepObd
                 Text(T("Saved readings, not live. Times shown when available.","Сохранённые данные, не текущие. Время указано при наличии."),11,false,8);
                 }
                 Section(T("Quick actions","Быстрые действия"));
-                Route(T("Vehicle scan","Диагностика авто"),T("10 ECU groups","10 групп ECU"),()=>Open("vehicle_scan"));
+                RenderFavorites();
+                Route(T("Vehicle health check","Комплексная проверка"),T("Read-only · combined report","Только чтение · единый отчёт"),()=>Open("health"));
                 Route(T("Live dashboard","Приборная панель"),T("Engine · DDE","Двигатель · DDE"),()=>Open("live_engine"));
             }
             else if(_tab==1)
             {
-                Section(T("Last scan · saved","Последнее чтение · сохранено"));
-                ModuleSummary("DDE",T("Engine","Двигатель"));ModuleSummary("EGS",T("Transmission","АКПП"));
-                Route(T("Vehicle scan","Сканировать авто"),T("10 ECU groups · experimental","10 групп ECU · тест"),()=>Open("vehicle_scan"));
-                Route(T("Fault codes","Ошибки"),T("Engine & transmission · DDE / EGS","Двигатель и АКПП · DDE / EGS"),()=>Open("faults"));
-                Route(T("History","История"),T("Saved reports","Сохранённые отчёты"),()=>Open("history"),false);
+                if(_system=="")
+                {
+                    BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>{if(_ready)Open("health");},true);
+                    Route(T("Search functions","Поиск функций"),T("Find by name or ECU","По названию или ECU"),SearchFunctions,false);
+                    Section(T("Vehicle systems","Системы автомобиля"));
+                    foreach(var id in new[]{"engine","gearbox","power","chassis","climate","body"})
+                        Route(SystemName(id),SystemSubtitle(id),()=>{_system=id;_systemPage=0;Render();},false);
+                    Section(T("Vehicle checks","Проверка автомобиля"));
+                    FeatureRoute("vehicle_scan");FeatureRoute("mileage");FeatureRoute("ecu_info");
+                    FeatureRoute("faults");
+                }
+                else RenderSystem();
             }
             else if(_tab==2)
             {
-                Route(T("Engine dashboard","Двигатель"),T("DDE · live gauges and graphs","DDE · приборы и графики"),()=>Open("live_engine"));
-                Route(T("Transmission","АКПП"),T("EGS · temperatures and converter","EGS · температура и гидротрансформатор"),()=>Open("live_egs"));
-                Route(T("Transmission adaptations","Адаптации АКПП"),T("GS19A · read only · experimental","GS19A · только чтение · тест"),()=>Open("adaptations"));
-                Route(T("Cylinder corrections","Коррекции цилиндров"),T("Six-cylinder view · experimental","Шесть цилиндров · тест"),()=>Open("injectors"));
-                Route(T("Saved logs","Сохранённые логи"),T("Offline charts · compare sessions","Графики офлайн · сравнение сессий"),()=>StartActivity(new Intent(this,typeof(BavarianOfflineActivity))),false);
-                Route("DEMO",T("Simulated readings · offline","Имитация данных · без авто"),()=>StartActivity(new Intent(this,typeof(BavarianDemoActivity))),false);
+                Section(T("Live dashboards","Приборные панели"));
+                FeatureRoute("live_engine");FeatureRoute("live_egs");FeatureRoute("injectors");
+                Section(T("Recordings","Записи"));
+                FeatureRoute("logs");FeatureRoute("demo");
             }
             else if(_tab==3)
             {
-                Section(T("Maintenance","Обслуживание"));
-                Route(T("Battery management","Аккумулятор"),T("Registration · IBS · charge history","Регистрация · IBS · история заряда"),()=>Open("battery"));
-                Route(T("CBS service","Сервисные интервалы CBS"),T("Read service data","Чтение интервалов"),()=>Open("cbs"));
-                Route(T("Injector codes","Коды форсунок"),T("Read IMA codes · DDE","Чтение IMA · DDE"),()=>Open("ima"));
-                Section(T("Vehicle checks","Проверка автомобиля"));
-                Route(T("Mileage check","Проверка пробега"),T("DDE · KOMBI · CAS","DDE · KOMBI · CAS"),()=>Open("mileage"));
-                Route(T("Glow system","Свечи накаливания"),T("DDE fault records","Записи ошибок DDE"),()=>Open("glow"));
-                Route(T("ECU information","Информация о блоках"),T("DDE · EGS · KOMBI · CAS","DDE · EGS · KOMBI · CAS"),()=>Open("ecu_info"));
-                Route(T("Fault memory service","Обслуживание памяти ошибок"),T("Read MIL and clear DDE / EGS after a fresh scan","MIL и удаление ошибок после нового чтения"),()=>Open("service"));
-                Route(T("Scan history","История диагностики"),T("Saved local reports","Сохранённые локальные отчёты"),()=>Open("history"),false);
-                Route(T("PDF reports","Отчёты PDF"),T("Export saved diagnostic reports","Экспорт сохранённых отчётов"),()=>{var i=new Intent(this,typeof(BavarianOfflineActivity));i.PutExtra("reports",true);StartActivity(i);},false);
-                Text(T("Fault clearing requires confirmation and engine off.","Удаление ошибок требует подтверждения и остановленного двигателя."),13,false,12);
+                Section(T("Maintenance & actions","Обслуживание и операции"));
+                FeatureRoute("battery");FeatureRoute("cbs");FeatureRoute("service");
+                Text(T("Write operations remain separate and require confirmation. CBS is read-only.","Операции записи требуют отдельного подтверждения. CBS — только чтение."),13,false,12);
+                Section(T("Reports","Отчёты"));
+                FeatureRoute("history");FeatureRoute("pdf");
             }
             else
             {
@@ -125,6 +127,112 @@ namespace BmwDeepObd
                 Text("Based on Deep OBD / EdiabasLib · GPL-3.0",12,false,20);
             }
             RefreshStatus();UpdateLibrary();
+        }
+        private string SystemName(string id)=>id switch
+        {
+            "engine"=>T("Engine","Двигатель"),"gearbox"=>T("Transmission","Трансмиссия"),"power"=>T("Power supply","Электропитание"),
+            "chassis"=>T("Chassis","Шасси"),"climate"=>T("Climate","Климат"),_=>T("Body & electronics","Кузов и электроника")
+        };
+        private string SystemSubtitle(string id)=>id switch
+        {
+            "engine"=>T("DDE · faults, sensors, injectors","DDE · ошибки, параметры, форсунки"),
+            "gearbox"=>T("EGS · faults, live data, adaptations","EGS · ошибки, данные, адаптации"),
+            "power"=>T("IBS · battery history and charge","IBS · история АКБ и заряд"),
+            "chassis"=>T("DSC · fault memory","DSC · память ошибок"),
+            "climate"=>T("IHKA · fault memory","IHKA · память ошибок"),
+            _=>T("CAS, KOMBI, LM, CCC, PDC","CAS, KOMBI, LM, CCC, PDC")
+        };
+        private (string Id,string Title,string Sub)[] Features()=>new[]{
+            ("health",T("Vehicle health check","Комплексная проверка"),T("Read-only combined report","Единый отчёт · только чтение")),
+            ("vehicle_scan",T("Full ECU fault scan","Полное чтение ошибок"),"10 ECU"),
+            ("faults",T("DDE + EGS fault memory","Ошибки DDE + EGS"),"DDE / EGS"),
+            ("fault_engine",T("Engine fault memory","Ошибки двигателя"),"DDE"),
+            ("fault_gearbox",T("Transmission fault memory","Ошибки АКПП"),"EGS"),
+            ("fault_chassis",T("Chassis fault memory","Ошибки шасси"),"DSC"),
+            ("fault_climate",T("Climate fault memory","Ошибки климата"),"IHKA"),
+            ("fault_body",T("Body fault memory","Ошибки кузова"),"CAS / KOMBI / LM / CCC / PDC"),
+            ("live_engine",T("Engine dashboard","Параметры двигателя"),"DDE · Live Data"),
+            ("live_egs",T("Transmission dashboard","Параметры АКПП"),"EGS · Live Data"),
+            ("injectors",T("Cylinder corrections","Коррекции форсунок"),"DDE · Live Data"),
+            ("ima",T("Injector codes","Коды форсунок"),"IMA · "+T("Read only","Чтение")),
+            ("glow",T("Glow system","Свечи накаливания"),T("Fault records","Записи ошибок")),
+            ("adaptations",T("Transmission adaptations","Адаптации АКПП"),"GS19A · "+T("Read only","Чтение")),
+            ("battery_read",T("Battery diagnostics","Диагностика АКБ"),"IBS · SOC / SOH"),
+            ("battery",T("Battery replacement","Замена аккумулятора"),T("Read and register new battery","Чтение и регистрация нового АКБ")),
+            ("cbs",T("CBS service","Сервисные интервалы"),"CBS · "+T("Read only","Чтение")),
+            ("mileage",T("Mileage check","Проверка пробега"),"DDE / KOMBI / CAS"),
+            ("ecu_info",T("ECU information","Информация о блоках"),"IDENT · DDE / EGS / KOMBI / CAS"),
+            ("engine",T("Engineering · DDE","Инженерный раздел DDE"),"IDENT"),
+            ("transmission",T("Engineering · EGS","Инженерный раздел EGS"),"IDENT"),
+            ("service",T("Fault memory service","Обслуживание памяти ошибок"),T("MIL / confirmed DDE & EGS clear","MIL / подтверждённое удаление DDE и EGS")),
+            ("history",T("Scan history","История диагностики"),T("Saved reports","Сохранённые отчёты")),
+            ("pdf",T("PDF reports","Отчёты PDF"),T("Export","Экспорт")),
+            ("logs",T("Saved logs","Сохранённые логи"),T("Offline charts and comparison","Графики и сравнение офлайн")),
+            ("demo","DEMO",T("Simulated readings","Имитация данных"))
+        };
+        private bool Offline(string id)=>id=="history"||id=="pdf"||id=="logs"||id=="demo";
+        private void OpenFeature(string id)
+        {
+            if(!Offline(id)&&!_ready)return;
+            if(id=="logs"||id=="pdf"){var i=new Intent(this,typeof(BavarianOfflineActivity));i.PutExtra("reports",id=="pdf");StartActivity(i);}
+            else if(id=="demo")StartActivity(new Intent(this,typeof(BavarianDemoActivity)));
+            else Open(id);
+        }
+        private void FeatureRoute(string id)
+        {
+            var f=Features().FirstOrDefault(x=>x.Id==id);if(f.Id==null)return;
+            Route(f.Title,f.Sub,()=>OpenFeature(id),!Offline(id));
+        }
+        private void RenderSystem()
+        {
+            BavarianUi.Action(_body,T("‹ All systems","‹ Все системы"),(s,e)=>{_system="";_systemPage=0;Render();});
+            var labels=_ru?new[]{"Обзор","Данные","Проверки","Сервис"}:new[]{"Overview","Data","Checks","Service"};
+            var bar=new LinearLayout(this){Orientation=Orientation.Horizontal};
+            _body.AddView(bar,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(10)});
+            for(int i=0;i<4;i++){int index=i;var button=new Button(this){Text=labels[i]};BavarianUi.Style(button,_systemPage==i);button.TextSize=11;button.SetPadding(Dp(2),0,Dp(2),0);button.Click+=(s,e)=>{_systemPage=index;Render();};bar.AddView(button,new LinearLayout.LayoutParams(0,Dp(45),1));}
+            string[] ids=(_system,_systemPage) switch
+            {
+                ("engine",0)=>new[]{"fault_engine"},("engine",1)=>new[]{"live_engine","injectors"},("engine",2)=>new[]{"glow","ima"},("engine",3)=>new[]{"engine","service"},
+                ("gearbox",0)=>new[]{"fault_gearbox"},("gearbox",1)=>new[]{"live_egs"},("gearbox",2)=>new[]{"adaptations"},("gearbox",3)=>new[]{"transmission","service"},
+                ("power",0)=>new[]{"battery_read"},("power",1)=>new[]{"battery_read"},("power",2)=>new[]{"battery_read"},("power",3)=>new[]{"battery"},
+                ("chassis",0)=>new[]{"fault_chassis"},("climate",0)=>new[]{"fault_climate"},
+                ("body",0)=>new[]{"fault_body"},("body",1)=>new[]{"ecu_info"},("body",2)=>new[]{"mileage"},("body",3)=>new[]{"cbs"},
+                _=>Array.Empty<string>()
+            };
+            if(_systemPage==0&&_system=="engine")ModuleSummary("DDE",T("Last saved scan","Последнее сохранённое чтение"));
+            if(_systemPage==0&&_system=="gearbox")ModuleSummary("EGS",T("Last saved scan","Последнее сохранённое чтение"));
+            if(ids.Length==0)Text(T("No additional verified functions for this system yet.","Дополнительные подтверждённые функции этой системы пока отсутствуют."),14,false,16);
+            foreach(string id in ids)FeatureRoute(id);
+            if(_systemPage==3)Text(T("Service operations are not part of automatic checks.","Сервисные операции не входят в автоматические проверки."),12,false,12);
+        }
+        private void SearchFunctions()
+        {
+            var input=new EditText(this){Hint=T("Search by name or ECU","Название или ECU"),SingleLine=true};
+            new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Search functions","Поиск функций")).SetView(input)
+                .SetPositiveButton(T("Search","Найти"),(d,a)=>{
+                    string q=(input.Text??"").Trim();
+                    var hits=Features().Where(f=>(f.Title+" "+f.Sub+" "+f.Id).IndexOf(q,StringComparison.OrdinalIgnoreCase)>=0).ToArray();
+                    if(hits.Length==0){new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetMessage(T("No matching functions.","Ничего не найдено.")).SetPositiveButton("OK",(x,y)=>{}).Show();return;}
+                    new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetItems(hits.Select(f=>f.Title+" · "+f.Sub).ToArray(),(x,y)=>OpenFeature(hits[y.Which].Id)).Show();
+                }).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
+        }
+        private string[] Favorites()=>GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetString("favorites","").Split(',',StringSplitOptions.RemoveEmptyEntries);
+        private void RenderFavorites()
+        {
+            foreach(var id in Favorites())FeatureRoute(id);
+            BavarianUi.Action(_body,T("Edit favorites","Настроить избранное"),(s,e)=>{
+                var features=Features();var existing=Favorites();var checks=features.Select(f=>existing.Contains(f.Id)).ToArray();
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Favorites","Избранное"))
+                    .SetMultiChoiceItems(features.Select(f=>f.Title).ToArray(),checks,(d,a)=>checks[a.Which]=a.IsChecked)
+                    .SetPositiveButton(T("Save","Сохранить"),(d,a)=>{GetSharedPreferences("bavarian_home",FileCreationMode.Private).Edit().PutString("favorites",string.Join(",",features.Where((f,i)=>checks[i]).Take(6).Select(f=>f.Id))).Apply();Render();})
+                    .SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
+            });
+        }
+        public override void OnBackPressed()
+        {
+            if(_tab==1&&_system!=""){_system="";_systemPage=0;Render();return;}
+            if(_tab!=0){_tab=0;_system="";Render();return;}
+            base.OnBackPressed();
         }
         private TextView Text(string text,int size,bool title,int top=4)
         {

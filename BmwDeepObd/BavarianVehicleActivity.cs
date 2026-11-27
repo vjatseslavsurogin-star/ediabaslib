@@ -51,6 +51,8 @@ namespace BmwDeepObd
             ["d_egs.grp"]="9d59ca58c01d052fc5680e6f9030ac52a95924a0b60143b4c331f3795ebf7df4"
         };
         private string _group, _resolved;
+        private bool _health;
+        private string[] _scopedGroups;
         private bool _faultScreen, _fullScan, _dashboard, _injectors, _serviceScreen, _adaptations;
         private Button _adaptButton;
         private Button _cancelScan,_actions;
@@ -117,9 +119,11 @@ namespace BmwDeepObd
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
             if(IsMaintenanceMode(requested)){CreateMaintenance(requested);return;}
-            _fullScan=requested=="vehicle_scan";
+            _health=requested=="health";
+            _scopedGroups=requested switch {"fault_engine"=>new[]{"d_motor.grp"},"fault_gearbox"=>new[]{"d_egs.grp"},"fault_chassis"=>new[]{"d_dsc.grp"},"fault_climate"=>new[]{"d_klima.grp"},"fault_body"=>new[]{"d_cas.grp","d_kombi.grp","d_lm.grp","d_ccc.grp","d_pdc.grp"},_=>null};
+            _fullScan=requested=="vehicle_scan"||_health;
             _serviceScreen=requested=="service"||requested=="history";
-            _faultScreen=requested=="faults"||_fullScan||_serviceScreen;
+            _faultScreen=requested=="faults"||_fullScan||_serviceScreen||_scopedGroups!=null;
             _injectors=requested=="injectors";_adaptations=requested=="adaptations";
             _dashboard=requested=="live_engine"||requested=="live_egs"||_injectors;
             _group=requested=="engine"||requested=="live_engine"||_injectors?"d_motor.grp":requested=="transmission"||requested=="live_egs"||_adaptations?"d_egs.grp":null;
@@ -137,13 +141,13 @@ namespace BmwDeepObd
             },out _body);
             if(_faultScreen)
             {
-                AddText(_serviceScreen?T("Service · DDE / EGS","Сервис · DDE / EGS"):_fullScan?T("Vehicle scan · E60","Диагностика автомобиля · E60"):T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),26);
-                AddText(_fullScan?T("Experimental scan of 10 ECU groups. Some may be absent or unsupported. Park safely, ignition on.","Экспериментальный опрос 10 групп ECU. Некоторые блоки могут отсутствовать или не поддерживаться. Стоянка, зажигание включено."):T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
+                AddText(_health?T("Vehicle health check","Комплексная проверка"):_scopedGroups!=null?string.Join(" / ",_scopedGroups.Select(BavarianScanCatalog.Module)):_serviceScreen?T("Service · DDE / EGS","Сервис · DDE / EGS"):_fullScan?T("Vehicle scan · E60","Диагностика автомобиля · E60"):T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),26);
+                AddText(_health?T("Read-only fault scan and available battery, mileage, CBS and injector records. Not a complete safety or health assessment.","Чтение ошибок и доступных данных АКБ, пробега, CBS и форсунок. Не является полной оценкой исправности или безопасности."):_scopedGroups!=null?T("Read-only fault memory for selected systems.","Чтение памяти ошибок выбранных систем."):_fullScan?T("Experimental scan of 10 ECU groups. Some may be absent or unsupported. Park safely, ignition on.","Экспериментальный опрос 10 групп ECU. Некоторые блоки могут отсутствовать или не поддерживаться. Стоянка, зажигание включено."):T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
                 _state=AddText("",15);
                 _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
                 _readDetails=new CheckBox(this){Text=T("Extra fault details · DDE/EGS (test)","Подробности ошибок · DDE/EGS (тест)")};
                 BavarianUi.Checkbox(_readDetails);_body.AddView(_readDetails);
-                _scanAll=AddButton(_fullScan?T("Scan vehicle","Сканировать автомобиль"):T("Scan DDE + EGS","Прочитать DDE + EGS"),async(s,e)=>await ScanFaultsAsync());
+                _scanAll=AddButton(_health?T("Start check","Начать проверку"):_scopedGroups!=null?T("Read faults","Прочитать ошибки"):_fullScan?T("Scan vehicle","Сканировать автомобиль"):T("Scan DDE + EGS","Прочитать DDE + EGS"),async(s,e)=>await ScanFaultsAsync());
                 BavarianUi.Style(_scanAll,true);
                 _cancelScan=AddButton(T("Stop request","Остановить запрос"),(s,e)=>_cancel?.Cancel());
                 _output=AddText("",14);
@@ -248,7 +252,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V2.1 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V2.2 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -295,9 +299,9 @@ namespace BmwDeepObd
                 _cancelScan.Visibility=_busy?ViewStates.Visible:ViewStates.Gone;
                 _actions.Enabled=!_busy;
                 _readDetails.Enabled=!_busy;
-                _milButton.Enabled=!_busy&&permitted;
-                _clearDde.Enabled=!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_motor.grp");
-                _clearEgs.Enabled=!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
+                _milButton.Enabled=_serviceScreen&&!_busy&&permitted;
+                _clearDde.Enabled=_serviceScreen&&!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_motor.grp");
+                _clearEgs.Enabled=_serviceScreen&&!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
                 _historyButton.Enabled=!_busy;
                 if(!_busy)_state.Text=permitted?(BavarianConnection.IsBluetooth(this)?T("● Bluetooth selected · experimental","● Bluetooth выбран · тест"):T("● Adapter connected · ready to scan","● Адаптер подключён · можно читать")):T("○ Not connected · Home","○ Нет подключения · Главная");
                 return;
@@ -389,13 +393,14 @@ namespace BmwDeepObd
             try{manager=Manager;device=GetDevice(manager);}
             catch(Exception ex){_output.Text=Describe(ex);return;}
             if(device==null||!Ready(manager,device)){Refresh();return;}
-            string[] targets=_fullScan?BavarianScanCatalog.AllGroups:new[]{"d_motor.grp","d_egs.grp"};
+            string[] targets=_scopedGroups??(_fullScan?BavarianScanCatalog.AllGroups:new[]{"d_motor.grp","d_egs.grp"});
             bool details=_readDetails.Checked;
             _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
             _scanIdentities.Clear();_scanDevice=device.DeviceName;
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
-            _cancel.CancelAfter(TimeSpan.FromMinutes(_fullScan?3:1));
+            _cancel.CancelAfter(TimeSpan.FromMinutes(_health?6:_fullScan||(_scopedGroups?.Length??0)>2?3:1));
             var token=_cancel.Token;
+            bool incomplete=false;var extraReports=new List<string>();
             Refresh();_output.Text=T("Reading modules...","Чтение блоков...");
             try
             {
@@ -420,14 +425,33 @@ namespace BmwDeepObd
                     {
                         Log("FAULT_SCAN FAIL "+group+" "+Describe(ex));
                         if(IsFinishing||IsDestroyed||!_visible)break;
+                        incomplete=true;
                         _faultPanel.AddFailure(module,moduleCancel.IsCancellationRequested?T("Cancelled / timed out","Отменено / тайм-аут"):Describe(ex));
                         SaveOverview(module,null,null);
                     }
                 }
+                if(_health)
+                {
+                    foreach(var check in new[]{"battery_read","mileage","cbs","ima"})
+                    {
+                        if(token.IsCancellationRequested||!_visible)break;
+                        _output.Text=T("Reading: ","Чтение: ")+check;
+                        using var step=CancellationTokenSource.CreateLinkedTokenSource(token);step.CancelAfter(TimeSpan.FromSeconds(45));
+                        try
+                        {
+                            var report=await Task.Run(()=>ReadMaintenance(manager,device.DeviceName,check,false,null,step.Token));
+                            extraReports.Add(check+"\n"+report.Text);incomplete|=report.Incomplete;
+                        }
+                        catch(Exception ex){incomplete=true;extraReports.Add(check+" · "+T("Not completed: ","Не завершено: ")+Describe(ex));}
+                    }
+                    if(extraReports.Count<4)incomplete=true;
+                }
                 if(!IsFinishing&&!IsDestroyed&&_visible)
                 {
-                    bool saved=SaveHistory(T("Fault scan","Чтение ошибок"),_faultPanel.ExportText(),token.IsCancellationRequested);
+                    string reportText=_faultPanel.ExportText()+(_health?"\n\n"+string.Join("\n\n",extraReports):"");
+                    bool saved=SaveHistory(_health?T("Vehicle health check","Комплексная проверка"):T("Fault scan","Чтение ошибок"),reportText,incomplete||token.IsCancellationRequested);
                     _output.Text=token.IsCancellationRequested?T("Scan incomplete / cancelled.","Сканирование не завершено / отменено."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
+                    if(_health)_output.Text=(incomplete||token.IsCancellationRequested?T("Partial check · see unavailable readings.","Неполная проверка · есть недоступные данные."):T("Read-only check completed.","Чтение завершено."))+"\n\n"+string.Join("\n\n",extraReports);
                     if(!saved)_output.Text+="\n"+T("History could not be saved.","История не сохранена.");
                 }
             }

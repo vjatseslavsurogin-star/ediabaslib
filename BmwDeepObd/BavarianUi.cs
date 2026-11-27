@@ -50,14 +50,14 @@ namespace BmwDeepObd
             scroll.AddView(body);root.AddView(scroll,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,0,1));
             var divider=new View(a);divider.SetBackgroundColor(Line);root.AddView(divider,new LinearLayout.LayoutParams(-1,Dp(a,1)));
             var nav=new LinearLayout(a){Orientation=Orientation.Horizontal};nav.SetBackgroundColor(Surface);
-            string[] labels=ru?new[]{"Главная","Ошибки","Данные","Инструменты","Настройки"}:new[]{"Home","Diagnostics","Live Data","Tools","Settings"};
+            string[] labels=ru?new[]{"Главная","Диагностика","Данные","Сервис","Настройки"}:new[]{"Home","Diagnostics","Live Data","Service","Settings"};
             
             for(int i=0;i<5;i++)
             {
                 int index=i;
                 var cell=new LinearLayout(a){Orientation=Orientation.Vertical};cell.SetGravity(GravityFlags.Center);cell.SetPadding(0,Dp(a,5),0,Dp(a,5));
                 var icon=new NavIcon(a,i,i==selected?Blue:Muted);cell.AddView(icon,new LinearLayout.LayoutParams(Dp(a,25),Dp(a,25)));
-                var label=Text(a,labels[i],10,i==selected);label.SetTextColor(i==selected?Blue:Muted);label.Gravity=GravityFlags.Center;cell.AddView(label);
+                var label=Text(a,labels[i],9,i==selected);label.SetTextColor(i==selected?Blue:Muted);label.Gravity=GravityFlags.Center;cell.AddView(label);
                 cell.ContentDescription=labels[i];cell.Clickable=true;cell.Focusable=true;cell.Click+=(s,e)=>navigate(index);
                 nav.AddView(cell,new LinearLayout.LayoutParams(0,Dp(a,60),1));
             }
