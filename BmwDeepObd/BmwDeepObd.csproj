@@ -31,6 +31,9 @@
     <AndroidUseAapt2>True</AndroidUseAapt2>
     <AndroidCreatePackagePerAbi>False</AndroidCreatePackagePerAbi>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(BavarianUsbBaseline)' == 'true'">
+    <DefineConstants>$(DefineConstants);BAVARIAN_USB_BASELINE</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <AndroidAsset Remove="Assets\.gitignore" />
     <AndroidAsset Update="Assets\Ecu*.bin" AssetPack="assets1" DeliveryType="InstallTime" />
@@ -124,29 +127,29 @@
     <EmbeddedResource Include="..\EdiabasLib\BmwFileReader\VehicleSeries.zip" Link="VehicleInfo\VehicleSeries.zip" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\esp8266\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type16\CanAdapterElm.X.production.hex" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\esp8266\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type16\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\default\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type2\CanAdapterElm.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\default\production\ELM327V23.X.production.hex" Link="HexFiles\Type2\ELM327V23.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\bc04\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type3\CanAdapterElm.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\def115200\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type8\CanAdapterElm.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\hc04\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type4\CanAdapterElm.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\spp_uart2\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type7\CanAdapterElm.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\spp_uart\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type5\CanAdapterElm.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\yc1021\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type6\CanAdapterElm.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\bc04\production\ELM327V23.X.production.hex" Link="HexFiles\Type3\ELM327V23.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\def115200\production\ELM327V23.X.production.hex" Link="HexFiles\Type8\ELM327V23.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\hc04\production\ELM327V23.X.production.hex" Link="HexFiles\Type4\ELM327V23.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\spp_uart2\production\ELM327V23.X.production.hex" Link="HexFiles\Type7\ELM327V23.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\spp_uart\production\ELM327V23.X.production.hex" Link="HexFiles\Type5\ELM327V23.X.production.hex" />
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\yc1021\production\ELM327V23.X.production.hex" Link="HexFiles\Type6\ELM327V23.X.production.hex" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\default\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type2\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\default\production\ELM327V23.X.production.hex" Link="HexFiles\Type2\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\bc04\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type3\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\def115200\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type8\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\hc04\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type4\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\spp_uart2\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type7\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\spp_uart\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type5\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\yc1021\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type6\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\bc04\production\ELM327V23.X.production.hex" Link="HexFiles\Type3\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\def115200\production\ELM327V23.X.production.hex" Link="HexFiles\Type8\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\hc04\production\ELM327V23.X.production.hex" Link="HexFiles\Type4\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\spp_uart2\production\ELM327V23.X.production.hex" Link="HexFiles\Type7\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\spp_uart\production\ELM327V23.X.production.hex" Link="HexFiles\Type5\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\yc1021\production\ELM327V23.X.production.hex" Link="HexFiles\Type6\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\hc06\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type9\CanAdapterElm.X.production.hex" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\dist\hc06\production\CanAdapterElm.X.production.hex" Link="HexFiles\Type9\CanAdapterElm.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\hc06\production\ELM327V23.X.production.hex" Link="HexFiles\Type9\ELM327V23.X.production.hex" />
+    <EmbeddedResource Include="..\EdiabasLib\CanAdapterElm\CanAdapterElm.X\ELM327V23.X\dist\hc06\production\ELM327V23.X.production.hex" Link="HexFiles\Type9\ELM327V23.X.production.hex" Condition="'$(BavarianUsbBaseline)' != 'true'" />
   </ItemGroup>
   <ItemGroup>
     <Compile Update="Properties\Resources.Designer.cs">

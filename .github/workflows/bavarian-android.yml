@@ -37,7 +37,7 @@ jobs:
             $path = Join-Path $base $include
             if (-not (Test-Path -LiteralPath $path)) { $missing += $include }
           }
-          $lines = @('## Upstream build inputs')
+          $lines = @('## Upstream build inputs (USB baseline; PIC adapter updates disabled)')
           if (-not (Test-Path 'BmwDeepObd/Assets/Ecu.bin')) {
             $lines += '- ECU asset Ecu.bin is absent. See upstream BmwDeepObd/ReadMe.txt; diagnostic functionality cannot be validated without authorized ECU data.'
             Write-Warning 'ECU package absent; do not treat a compiled app as ready for vehicle diagnostics.'
@@ -68,12 +68,12 @@ jobs:
 
       - name: Resolve Android SDK dependencies
         run: |
-          dotnet build BmwDeepObd/BmwDeepObd.csproj -t:InstallAndroidDependencies -f net11.0-android37.2 "-p:AndroidSdkDirectory=$env:ANDROID_HOME" "-p:JavaSdkDirectory=$env:JAVA_HOME" -p:AcceptAndroidSDKLicenses=True -p:EnableAndroidTargets=true
+          dotnet build BmwDeepObd/BmwDeepObd.csproj -t:InstallAndroidDependencies -f net11.0-android37.2 "-p:AndroidSdkDirectory=$env:ANDROID_HOME" "-p:JavaSdkDirectory=$env:JAVA_HOME" -p:AcceptAndroidSDKLicenses=True -p:EnableAndroidTargets=true -p:BavarianUsbBaseline=true
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build original app (debug APK)
         run: |
-          dotnet build BmwDeepObd/BmwDeepObd.csproj -c Debug -f net11.0-android37.2 -p:EnableAndroidTargets=true -p:AndroidPackageFormat=apk -p:AndroidPackageFormats=apk -p:EmbedAssembliesIntoApk=true -p:AndroidKeyStore=false
+          dotnet build BmwDeepObd/BmwDeepObd.csproj -c Debug -f net11.0-android37.2 -p:EnableAndroidTargets=true -p:BavarianUsbBaseline=true -p:AndroidPackageFormat=apk -p:AndroidPackageFormats=apk -p:EmbedAssembliesIntoApk=true -p:AndroidKeyStore=false
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $apk = Get-ChildItem BmwDeepObd/bin -Recurse -Filter '*-Signed.apk'
           if (-not $apk) { throw 'No signed debug APK produced.' }
@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: upstream-debug-apk
+          name: usb-baseline-unverified-debug-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7

@@ -2989,6 +2989,10 @@ namespace BmwDeepObd
 
         public static bool FwUpdate(Stream inStream, Stream outStream, bool elmMode = false, bool elmFirmware = false)
         {
+#if BAVARIAN_USB_BASELINE
+            // No bundled PIC firmware in this build. Never enter bootloader mode.
+            return false;
+#else
             CreateFirmwareList();
             Comm comm = new Comm(inStream, outStream);
             Device device = new Device();
@@ -3059,6 +3063,7 @@ namespace BmwDeepObd
                 hexFile.Dispose();
             }
             return true;
+#endif
         }
 
         public static bool IsInBooloaderMode(Stream inStream, Stream outStream)
