@@ -102,7 +102,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bavarian-v19-${{ env.BAVARIAN_VARIANT }}-template-apk
+          name: bavarian-v20-${{ env.BAVARIAN_VARIANT }}-template-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7

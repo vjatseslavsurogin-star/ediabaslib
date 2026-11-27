@@ -42,13 +42,13 @@ namespace BmwDeepObd
         {
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab){_tab=i;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"BAVARIAN  /  1.9  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
+            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.0  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Инструменты","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Tools","Settings"};
             Text(titles[_tab],30,true,8);
             if(_tab==0)
             {
                 var connection=Card();_usb=BavarianUi.Text(this,"",14,true);connection.AddView(_usb);
-                _connect=BavarianUi.Action(connection,T("Connect adapter","Подключить адаптер"),(s,e)=>Connect(),true);
+                _connect=BavarianUi.Action(connection,T("Connect","Подключить"),(s,e)=>Connect(),true);
             }
             else
             {
@@ -67,11 +67,13 @@ namespace BmwDeepObd
                 var vin=prefs.GetString("vin","");
                 car.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(vin)?T("Profile selected manually · VIN not read","Профиль выбран вручную · VIN не считан"):T("Last read VIN: ","Последний считанный VIN: ")+vin,12));
                 _libraryStatus=BavarianUi.Text(this,"",12);car.AddView(_libraryStatus);
+                if(GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("metrics",true)){
                 Section(T("Last recorded values","Последние записанные данные"));
                 var faults=prefs.GetString("DDE_summary","—");
                 MetricPair(T("DDE fault records","Записи DDE"),faults,T("Coolant","ОЖ"),LastValue("coolant"));
                 MetricPair(T("DDE voltage","Напряжение"),LastValue("voltage"),T("Boost · absolute","Наддув · абс."),LastValue("boost"));
                 Text(T("Saved readings, not live. Times shown when available.","Сохранённые данные, не текущие. Время указано при наличии."),11,false,8);
+                }
                 Section(T("Quick actions","Быстрые действия"));
                 Route(T("Vehicle scan","Диагностика авто"),T("10 ECU groups","10 групп ECU"),()=>Open("vehicle_scan"));
                 Route(T("Live dashboard","Приборная панель"),T("Engine · DDE","Двигатель · DDE"),()=>Open("live_engine"));
@@ -87,7 +89,8 @@ namespace BmwDeepObd
             else if(_tab==2)
             {
                 Route(T("Engine dashboard","Двигатель"),T("DDE · live gauges and graphs","DDE · приборы и графики"),()=>Open("live_engine"));
-                Route(T("Transmission","АКПП"),T("EGS · temperatures and states","EGS · температуры и состояния"),()=>Open("live_egs"));
+                Route(T("Transmission","АКПП"),T("EGS · temperatures and converter","EGS · температура и гидротрансформатор"),()=>Open("live_egs"));
+                Route(T("Transmission adaptations","Адаптации АКПП"),T("GS19A · read only · experimental","GS19A · только чтение · тест"),()=>Open("adaptations"));
                 Route(T("Cylinder corrections","Коррекции цилиндров"),T("Six-cylinder view · experimental","Шесть цилиндров · тест"),()=>Open("injectors"));
                 Route("DEMO",T("Simulated readings · offline","Имитация данных · без авто"),()=>StartActivity(new Intent(this,typeof(BavarianDemoActivity))),false);
             }
@@ -100,6 +103,9 @@ namespace BmwDeepObd
             else
             {
                 Route(T("Language","Язык"),_ru?"Русский":"English",()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("Language / Язык").SetSingleChoiceItems(new[]{"English","Русский"},_ru?1:0,(d,a)=>{BavarianLanguage.SetRussian(this,a.Which==1);_ru=a.Which==1;(d as IDialogInterface)?.Dismiss();Render();}).Show(),false);
+                Route(T("Connection type","Тип подключения"),BavarianConnection.IsBluetooth(this)?"Bluetooth · experimental":"K+DCAN",ChooseAdapter,false);
+                Route(T("Connection log","Журнал соединения"),T("Local event history","Локальная история"),()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Connection log","Журнал соединения")).SetMessage(BavarianConnection.History(this)).SetPositiveButton("OK",(d,a)=>{}).Show(),false);
+                Route(T("Home widgets","Карточки главной"),T("Show or hide saved values","Показать или скрыть данные"),()=>{var p=GetSharedPreferences("bavarian_home",FileCreationMode.Private);p.Edit().PutBoolean("metrics",!p.GetBoolean("metrics",true)).Apply();Render();},false);
                 Section(T("Engineering","Инженерный раздел"));
                 Route("DDE",T("Identification and raw ECU details","Идентификация и данные блока"),()=>Open("engine"));
                 Route("EGS",T("Identification and raw ECU details","Идентификация и данные блока"),()=>Open("transmission"));
@@ -171,31 +177,73 @@ namespace BmwDeepObd
         }
         private void UpdateLibrary(){if(_libraryStatus!=null)_libraryStatus.Text=string.IsNullOrEmpty(_report)?T("Checking ECU library…","Проверка базы…"):_tab==0?(_ready?T("ECU library ready · 675 files","База ECU готова · 675 файлов"):T("ECU library not verified","База ECU не проверена")):_report;foreach(var b in _gated){b.Enabled=_ready;b.Alpha=_ready?1f:0.55f;}}
         private UsbManager Manager=>GetSystemService(UsbService) as UsbManager;
-        private UsbDevice Device(UsbManager manager)
-        {
-            if(manager==null)return null;var drivers=EdFtdiInterface.GetDriverList(manager);return drivers.Count==1?drivers[0].Device:null;
-        }
+        private string _lastConnectionState;
         private void RefreshStatus()
         {
             if(_usb==null||IsFinishing||IsDestroyed)return;
             try
             {
-                var manager=Manager;var d=Device(manager);bool ready=d!=null&&manager.HasPermission(d);
-                _usb.Text=ready?T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен"):d==null?T("○ Not connected","○ Нет подключения"):T("○ Permission required · Home","○ Нужно разрешение · Главная");
-                _usb.SetTextColor(ready?BavarianUi.Green:BavarianUi.Muted);
-                if(_connect!=null){_connect.Visibility=ready||d==null?ViewStates.Gone:ViewStates.Visible;_connect.Enabled=d!=null;}
+                var endpoint=BavarianConnection.Endpoint(this,Manager);
+                bool bt=BavarianConnection.IsBluetooth(this),ready=BavarianConnection.Ready(this,Manager,endpoint);
+                string state=ready?(bt?"bt selected":"usb ready"):"not ready";
+                if(_lastConnectionState!=state){_lastConnectionState=state;BavarianConnection.Log(this,state);}
+                _usb.Text=ready?(bt?T("● Bluetooth selected · ECU not checked","● Bluetooth выбран · ECU не проверен"):T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен")):T("○ Not connected","○ Нет подключения");
+                _usb.SetTextColor(ready&&!bt?BavarianUi.Green:BavarianUi.Muted);
+                if(_connect!=null){_connect.Visibility=ViewStates.Visible;_connect.Enabled=true;_connect.Text=T("Connect","Подключить");}
             }
-            catch(Exception){_usb.Text=T("USB check failed","Ошибка USB");if(_connect!=null)_connect.Enabled=false;}
+            catch(Exception){_usb.Text=T("Connection check failed","Ошибка соединения");}
         }
         private void Connect()
         {
+            if(!BavarianConnection.HasChoice(this)){ChooseAdapter();return;}
+            if(BavarianConnection.IsBluetooth(this)){ChooseBluetooth();return;}
+            ConnectUsb();
+        }
+        private void ChooseAdapter()
+        {
+            new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Connection type","Тип подключения"))
+                .SetItems(new[]{"K+DCAN",T("Bluetooth · vLinker / OBDLink · experimental","Bluetooth · vLinker / OBDLink · тест")},(d,a)=>{
+                    if(a.Which==0){BavarianConnection.SelectUsb(this);ConnectUsb();}else ChooseBluetooth();
+                }).Show();
+        }
+        private void ChooseBluetooth()
+        {
+            if(!BavarianConnection.BtPermission(this))
+            {
+                RequestPermissions(new[]{"android.permission.BLUETOOTH_CONNECT","android.permission.BLUETOOTH_SCAN"},720);return;
+            }
             try
             {
-                var m=Manager;var d=Device(m);if(d==null||m.HasPermission(d)){RefreshStatus();return;}
-                var intent=new Intent(this,typeof(BavarianUsbPermissionReceiver));intent.SetAction(ActivityCommon.AppNameSpace+".BAVARIAN_USB");
-                m.RequestPermission(d,PendingIntent.GetBroadcast(this,510,intent,OperatingSystem.IsAndroidVersionAtLeast(31)?PendingIntentFlags.Mutable:0));
+                var paired=BavarianConnection.Paired(this);
+                if(paired.Length==0){new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetMessage(T("Enable Bluetooth and pair a Classic/SPP adapter in Android settings first.","Включите Bluetooth и выполните сопряжение Classic/SPP адаптера в настройках Android.")).SetPositiveButton("OK",(d,a)=>{}).Show();return;}
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Paired adapters · experimental","Сопряжённые адаптеры · тест"))
+                    .SetItems(System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(paired,p=>(p.Name??"Bluetooth")+" · "+p.Address)),(d,a)=>{
+                        var selected=paired[a.Which];
+                        new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetMessage(T("Experimental ELM-compatible Classic Bluetooth, read-only. BMW K-Line compatibility is not verified. Pairing is not an ECU connection.","Экспериментальный ELM-совместимый Classic Bluetooth, только чтение. Совместимость с K-Line BMW не проверена. Сопряжение не означает связь с ECU."))
+                        .SetPositiveButton(T("Select","Выбрать"),(x,y)=>{BavarianConnection.SelectBluetooth(this,selected.Address);RefreshStatus();}).SetNegativeButton(T("Cancel","Отмена"),(x,y)=>{}).Show();
+                    }).Show();
             }
-            catch(Exception){RefreshStatus();}
+            catch(Exception ex){BavarianConnection.Log(this,"Bluetooth selection failed: "+ex.GetType().Name);}
+        }
+        public override void OnRequestPermissionsResult(int requestCode,string[] permissions,Android.Content.PM.Permission[] grantResults)
+        {
+            base.OnRequestPermissionsResult(requestCode,permissions,grantResults);
+            if(requestCode==720&&BavarianConnection.BtPermission(this))ChooseBluetooth();
+        }
+        private void ConnectUsb()
+        {
+            try
+            {
+                var m=Manager;var d=BavarianConnection.Endpoint(this,m);
+                if(d?.Usb==null){new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetMessage(T("Plug in exactly one K+DCAN adapter.","Подключите один K+DCAN адаптер.")).SetPositiveButton("OK",(x,y)=>{}).Show();return;}
+                if(!m.HasPermission(d.Usb))
+                {
+                    var intent=new Intent(this,typeof(BavarianUsbPermissionReceiver));intent.SetAction(ActivityCommon.AppNameSpace+".BAVARIAN_USB");
+                    m.RequestPermission(d.Usb,PendingIntent.GetBroadcast(this,510,intent,OperatingSystem.IsAndroidVersionAtLeast(31)?PendingIntentFlags.Mutable:0));
+                }
+                RefreshStatus();
+            }
+            catch(Exception ex){BavarianConnection.Log(this,"USB permission failed: "+ex.GetType().Name);RefreshStatus();}
         }
     }
 }

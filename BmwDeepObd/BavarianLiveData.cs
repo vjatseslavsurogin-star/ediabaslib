@@ -246,6 +246,23 @@ namespace BmwDeepObd
         }
     }
 
+    internal sealed class BavarianGauge : View
+    {
+        private readonly double _max;
+        private double? _value;
+        private readonly Paint _paint=new Paint(PaintFlags.AntiAlias);
+        public BavarianGauge(Context c,double max):base(c){_max=max;}
+        public void SetValue(double? value){_value=value;Invalidate();}
+        protected override void OnDraw(Canvas canvas)
+        {
+            base.OnDraw(canvas);float inset=6*Resources.DisplayMetrics.Density;
+            float radius=Math.Min(Width/2f-inset,Height-inset);if(radius<=0)return;
+            var rect=new RectF(Width/2f-radius,inset,Width/2f+radius,inset+radius*2);
+            _paint.SetStyle(Paint.Style.Stroke);_paint.StrokeWidth=5*Resources.DisplayMetrics.Density;_paint.StrokeCap=Paint.Cap.Round;
+            _paint.Color=BavarianUi.Line;canvas.DrawArc(rect,180,180,false,_paint);
+            if(_value.HasValue){_paint.Color=BavarianUi.Blue;canvas.DrawArc(rect,180,(float)(180*Math.Clamp(_value.Value/_max,0,1)),false,_paint);}
+        }
+    }
     internal sealed class BavarianLivePanel : LinearLayout
     {
         private readonly bool _ru;
@@ -255,14 +272,20 @@ namespace BmwDeepObd
         private readonly BavarianCylinderView _cylinders;
         private readonly Dictionary<string,TextView> _readouts=new Dictionary<string,TextView>();
         private string[] _selection=Array.Empty<string>();
+        private readonly Dictionary<string,BavarianGauge> _gauges=new Dictionary<string,BavarianGauge>();
+        private bool _gaugeMode=true;
+        private readonly bool _gearbox;
+        private TextView _slip;
+        public void ToggleGauges(){_gaugeMode=!_gaugeMode;Context.GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private).Edit().PutBoolean("gauges",_gaugeMode).Apply();ShowSelection(_selection);}
         private int Dp(int n)=>(int)(n*Resources.DisplayMetrics.Density+0.5f);
         public BavarianLivePanel(Context context,bool gearbox):base(context)
         {
-            _ru=BavarianLanguage.IsRussian(context);
+            _ru=BavarianLanguage.IsRussian(context);_gearbox=gearbox;_gaugeMode=context.GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private).GetBoolean("gauges",true);
             Orientation=Orientation.Vertical;
             SetPadding(Dp(0),Dp(10),Dp(0),Dp(10));SetBackgroundColor(BavarianUi.Bg);
             _title=new TextView(context){TextSize=14};_title.SetTextColor(Color.Rgb(103,179,255));AddView(_title);
             _tiles=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_tiles);
+            if(gearbox){_slip=BavarianUi.Text(context,"",14,true);AddView(_slip);_slip.Visibility=ViewStates.Gone;}
             if(!gearbox)
             {
                 _boost=new BavarianTrend(context,"Boost / mbar · actual blue · target amber");
@@ -277,7 +300,8 @@ namespace BmwDeepObd
         }
         public void ShowSelection(string[] jobs)
         {
-            _selection=jobs.ToArray();_tiles.RemoveAllViews();_readouts.Clear();
+            _selection=jobs.ToArray();_tiles.RemoveAllViews();_readouts.Clear();_gauges.Clear();
+            if(_slip!=null){_slip.Visibility=jobs.Contains("STATUS_MOTORDREHZAHL")&&jobs.Contains("STATUS_TURBINENDREHZAHL")?ViewStates.Visible:ViewStates.Gone;_slip.Text=_ru?"Разность оборотов: —":"Speed difference: —";}
             bool injectors=jobs.Contains(BavarianLiveFrame.InjectorJob);
             if(_cylinders!=null){_cylinders.Visibility=injectors?ViewStates.Visible:ViewStates.Gone;_cylinders.ClearValues();}
             jobs=jobs.Where(j=>j!=BavarianLiveFrame.InjectorJob).ToArray();
@@ -297,6 +321,8 @@ namespace BmwDeepObd
                 var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12};label.SetMinLines(2);label.SetTextColor(Color.Rgb(178,195,215));card.AddView(label);
                 var readout=BavarianUi.Text(Context,"—",24,true);readout.SetTextColor(BavarianUi.White);card.AddView(readout);
                 _readouts[jobs[i]]=readout;
+                double max=jobs[i] switch {"STATUS_MOTORDREHZAHL"=>5000,"STATUS_TURBINENDREHZAHL"=>5000,"STATUS_LADEDRUCK_IST" or "STATUS_LADEDRUCK_SOLL"=>3000,"STATUS_RAILDRUCK_IST" or "STATUS_RAILDRUCK_SOLL"=>2000,"STATUS_KUEHLMITTELTEMPERATUR" or "STATUS_GETRIEBETEMPERATUR"=>130,"STATUS_UBATT" or "STATUS_BATTERIESPANNUNG"=>16,_=>0};
+                if(_gaugeMode&&max>0){var gauge=new BavarianGauge(Context,max);card.AddView(gauge,new LinearLayout.LayoutParams(-1,Dp(64)));_gauges[jobs[i]]=gauge;}
             }
             if(row!=null&&jobs.Length%columns!=0)
                 for(int i=jobs.Length%columns;i<columns;i++)row.AddView(new View(Context),new LinearLayout.LayoutParams(0,1,1));
@@ -305,7 +331,7 @@ namespace BmwDeepObd
             if(_rail!=null)_rail.Visibility=jobs.Contains("STATUS_RAILDRUCK_IST")&&jobs.Contains("STATUS_RAILDRUCK_SOLL")?ViewStates.Visible:ViewStates.Gone;
             _title.Text=_ru?"Ожидание данных":"Waiting for readings";
         }
-        public void ResetHistory(){_cylinders?.ClearValues();foreach(var value in _readouts.Values)value.Text="—";_title.Text="Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
+        public void ResetHistory(){_cylinders?.ClearValues();foreach(var value in _readouts.Values)value.Text="—";foreach(var gauge in _gauges.Values)gauge.SetValue(null);if(_slip!=null)_slip.Text=_ru?"Разность оборотов: —":"Speed difference: —";_title.Text="Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
         public void MarkStopped(){_title.Text=(_ru?"Остановлено · последние показания":"Stopped · last readings");}
         public void UpdateFrame(BavarianLiveFrame frame)
         {
@@ -314,9 +340,17 @@ namespace BmwDeepObd
             foreach(var s in frame.Samples)
             {
                 if(!_readouts.TryGetValue(s.Job,out var value))continue;
+                if(_gauges.TryGetValue(s.Job,out var gauge))gauge.SetValue(s.Value);
                 string unit=s.Unit=="deg C"||s.Unit=="Grad C"?"°C":s.Unit=="hPa"?"mbar":s.Unit;
                 string fmt=s.Job=="STATUS_MOTORDREHZAHL"||s.Job=="STATUS_ISTGANG"?"0":s.Job=="STATUS_UBATT"?"0.00":"0.0";
                 value.Text=string.IsNullOrWhiteSpace(s.StateText)?s.Value.ToString(fmt,CultureInfo.InvariantCulture)+" "+unit:s.StateText+" ("+s.Value.ToString("0",CultureInfo.InvariantCulture)+")";
+            }
+            if(_slip!=null&&_slip.Visibility==ViewStates.Visible)
+            {
+                var engine=frame.Samples.FirstOrDefault(s=>s.Job=="STATUS_MOTORDREHZAHL");
+                var turbine=frame.Samples.FirstOrDefault(s=>s.Job=="STATUS_TURBINENDREHZAHL");
+                bool valid=engine!=null&&turbine!=null&&engine.Unit=="U/min"&&turbine.Unit=="U/min"&&Math.Abs((engine.Time-turbine.Time).TotalMilliseconds)<=500;
+                _slip.Text=(_ru?"Разность оборотов (последовательные замеры): ":"Speed difference (sequential readings): ")+(valid?(engine.Value-turbine.Value).ToString("0",CultureInfo.InvariantCulture)+" rpm":"—");
             }
             _cylinders?.UpdateValues(frame);
             _boost?.Append(frame.Value("STATUS_LADEDRUCK_IST"),frame.Value("STATUS_LADEDRUCK_SOLL"));

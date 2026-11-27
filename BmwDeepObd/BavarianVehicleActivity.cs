@@ -51,7 +51,8 @@ namespace BmwDeepObd
             ["d_egs.grp"]="9d59ca58c01d052fc5680e6f9030ac52a95924a0b60143b4c331f3795ebf7df4"
         };
         private string _group, _resolved;
-        private bool _faultScreen, _fullScan, _dashboard, _injectors, _serviceScreen;
+        private bool _faultScreen, _fullScan, _dashboard, _injectors, _serviceScreen, _adaptations;
+        private Button _adaptButton;
         private Button _cancelScan,_actions;
         private CheckBox _readDetails;
         private Button _milButton,_clearDde,_clearEgs,_historyButton;
@@ -81,6 +82,7 @@ namespace BmwDeepObd
         };
         private static readonly string[] GearboxJobs = { "STATUS_GETRIEBETEMPERATUR", "STATUS_ISTGANG" };
         private static readonly string[] EngineExtra = { "STATUS_LUFTMASSE_IST", "STATUS_LUFTMASSE_SOLL", BavarianLiveFrame.InjectorJob, "STATUS_ATMOSPHAERENDRUCK", "STATUS_ANSAUGLUFTTEMPERATUR", "STATUS_KRAFTSTOFFTEMPERATUR", "STATUS_PWG_POTI_1" };
+        private static readonly string[] AdaptationJobs={"STATUS_ADAPTIONSWERTE_PF","STATUS_ADAPTIONSWERTE_SF","STATUS_ADAPTIONSWERTE_PFN"};
         private static readonly string[] GearboxExtra = { "STATUS_WH_POSITION", "STATUS_GETRIEBEPOSITION", "STATUS_TURBINENDREHZAHL", "STATUS_MOTORDREHZAHL", "STATUS_WK", "STATUS_ABTRIEBSDREHZAHL", "STATUS_FAHRPEDALWINKEL", "STATUS_MOTORISTMOMENT", "STATUS_MOTORSOLLMOMENT", "STATUS_BATTERIESPANNUNG" };
         private Button _live, _stopLive, _extra, _csv;
         private BavarianLivePanel _panel;
@@ -117,9 +119,9 @@ namespace BmwDeepObd
             _fullScan=requested=="vehicle_scan";
             _serviceScreen=requested=="service"||requested=="history";
             _faultScreen=requested=="faults"||_fullScan||_serviceScreen;
-            _injectors=requested=="injectors";
+            _injectors=requested=="injectors";_adaptations=requested=="adaptations";
             _dashboard=requested=="live_engine"||requested=="live_egs"||_injectors;
-            _group=requested=="engine"||requested=="live_engine"||_injectors?"d_motor.grp":requested=="transmission"||requested=="live_egs"?"d_egs.grp":null;
+            _group=requested=="engine"||requested=="live_engine"||_injectors?"d_motor.grp":requested=="transmission"||requested=="live_egs"||_adaptations?"d_egs.grp":null;
             if(_dashboard)
             {
                 string saved=GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private)?.GetString(_group,"");
@@ -189,14 +191,16 @@ namespace BmwDeepObd
                 if(_injectors)AddText(T("Experimental quantity corrections. Test at warm idle while parked. No automatic injector diagnosis.","Экспериментальные коррекции количества топлива. Проверка на прогретом холостом ходу. Не является автоматическим диагнозом форсунок."),14);
                 _selectedSummary=AddText("",14);UpdateSelectionLabel();
             }
-            _live=AddButton(T("Start monitoring","Начать мониторинг"),async(s,e)=>{if(_dashboard&&_identified==null)await RunAsync("IDENT");if(_identified!=null)await RunAsync("LIVE");});
+            _live=AddButton(T("Start monitoring","Начать мониторинг"),async(s,e)=>{if(_dashboard&&_identified==null)await RunAsync("IDENT");if(_identified!=null&&_visible&&!IsFinishing)await RunAsync("LIVE");});
             BavarianUi.Style(_live,true);
             if(_dashboard)_ident.Visibility=ViewStates.Gone;
             _stopLive=AddButton(T("Stop live data","Остановить Live Data"),(s,e)=>_cancel?.Cancel());
             _extra=AddButton(T("Extra signals · experimental","Дополнительные сигналы · эксперимент"),async(s,e)=>await RunAsync("EXTRA"));
             if(_dashboard)_extra.Visibility=ViewStates.Gone;
             _csv=AddButton(T("Export latest CSV","Сохранить последний CSV"),(s,e)=>ExportCsv());
+            if(_adaptations)_adaptButton=AddButton(T("Read adaptations · raw ECU fields","Читать адаптации · поля ECU"),async(s,e)=>{if(_identified==null)await RunAsync("IDENT");if(_resolved=="gs19a.prg")await RunAsync("ADAPTATIONS");else _output.Text=T("GS19A required","Требуется GS19A");});
             _panel=new BavarianLivePanel(this,_group=="d_egs.grp");
+            if(_dashboard){var viewMode=AddButton(T("Switch gauges / tiles","Приборы / плитки"),(s,e)=>{if(!_busy)_panel.ToggleGauges();});}
             _panel.Visibility=_dashboard?ViewStates.Visible:ViewStates.Gone;
             if(_dashboard)_panel.ShowSelection(_selectedSignals);
             _body.AddView(_panel);
@@ -243,7 +247,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.9 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V2.0 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -262,12 +266,8 @@ namespace BmwDeepObd
             return BavarianUi.Action(_body,label,click);
         }
         private UsbManager Manager=>GetSystemService(UsbService) as UsbManager;
-        private UsbDevice GetDevice(UsbManager manager)
-        {
-            if(manager==null)return null;
-            var drivers=EdFtdiInterface.GetDriverList(manager);
-            return drivers.Count==1 ? drivers[0].Device : null;
-        }
+        private BavarianEndpoint GetDevice(UsbManager manager)=>BavarianConnection.Endpoint(this,manager);
+        private bool Ready(UsbManager manager,BavarianEndpoint endpoint)=>BavarianConnection.Ready(this,manager,endpoint);
         private string Selected=>_group??_variant?.SelectedItem?.ToString();
         private void Refresh()
         {
@@ -275,7 +275,7 @@ namespace BmwDeepObd
             try
             {
                 var manager=Manager; var device=GetDevice(manager);
-                permitted=device!=null && manager.HasPermission(device);
+                permitted=device!=null && Ready(manager,device);
                 if(device==null || device.DeviceName!=_deviceName || !permitted){ResetIdentity();}
                 if(_busy&&(!permitted||device?.DeviceName!=_activeDevice))_cancel?.Cancel();
                 if(_faultScreen&&(!permitted||(_scanDevice!=null&&device?.DeviceName!=_scanDevice)))_scanIdentities.Clear();
@@ -284,7 +284,8 @@ namespace BmwDeepObd
             catch(Exception){_state.Text="USB check failed.";ResetIdentity();_cancel?.Cancel();}
             _permission.Enabled=!_busy;
             _permission.Visibility=ViewStates.Gone;
-            _state.SetTextColor(permitted?BavarianUi.Green:BavarianUi.Muted);
+            _state.SetTextColor(permitted&&!BavarianConnection.IsBluetooth(this)?BavarianUi.Green:BavarianUi.Muted);
+            if(permitted&&!_busy&&BavarianConnection.IsBluetooth(this)&&_identified==null)_state.Text=T("● Bluetooth selected · experimental","● Bluetooth выбран · тест");
             if(_faultScreen)
             {
                 _scanAll.Enabled=!_busy&&permitted;
@@ -293,10 +294,10 @@ namespace BmwDeepObd
                 _actions.Enabled=!_busy;
                 _readDetails.Enabled=!_busy;
                 _milButton.Enabled=!_busy&&permitted;
-                _clearDde.Enabled=!_busy&&permitted&&_scanIdentities.ContainsKey("d_motor.grp");
-                _clearEgs.Enabled=!_busy&&permitted&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
+                _clearDde.Enabled=!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_motor.grp");
+                _clearEgs.Enabled=!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
                 _historyButton.Enabled=!_busy;
-                if(!_busy)_state.Text=permitted?T("● Adapter connected · ready to scan","● Адаптер подключён · можно читать"):T("○ Not connected · Home","○ Нет подключения · Главная");
+                if(!_busy)_state.Text=permitted?(BavarianConnection.IsBluetooth(this)?T("● Bluetooth selected · experimental","● Bluetooth выбран · тест"):T("● Adapter connected · ready to scan","● Адаптер подключён · можно читать")):T("○ Not connected · Home","○ Нет подключения · Главная");
                 return;
             }
             _variant.Enabled=!_busy;
@@ -307,9 +308,10 @@ namespace BmwDeepObd
             _faults.Enabled=ready;_snapshot.Enabled=ready;
             bool verifiedVariant=_resolved=="d50m57e0.prg"||_resolved=="gs19a.prg";
             _live.Enabled=_dashboard?!_busy&&permitted&&(_identified==null||verifiedVariant):ready&&AutoMode&&verifiedVariant;
-            if(_dashboard){_live.Visibility=_busy&&_liveRunning?ViewStates.Gone:ViewStates.Visible;_stopLive.Visibility=_busy&&_liveRunning?ViewStates.Visible:ViewStates.Gone;_actions.Enabled=!_busy;}
+            if(_dashboard){_live.Visibility=_busy?ViewStates.Gone:ViewStates.Visible;_stopLive.Visibility=_busy?ViewStates.Visible:ViewStates.Gone;_actions.Enabled=!_busy;}
             _extra.Enabled=ready&&AutoMode&&verifiedVariant;
-            _stopLive.Enabled=_busy&&_liveRunning;
+            if(_adaptButton!=null)_adaptButton.Enabled=!_busy&&permitted&&(_identified==null||_resolved=="gs19a.prg");
+            _stopLive.Enabled=_busy;
             if(_chooseSignals!=null)_chooseSignals.Enabled=!_busy;
             _csv.Enabled=!_busy&&AutoMode&&LatestCsv()!=null;
             _stats.Text="Jobs: "+_ok+" OK / "+_failed+" failed (this screen)";
@@ -376,33 +378,15 @@ namespace BmwDeepObd
             }
             catch(Exception ex){_output.Text=Describe(ex);}
         }
-        private void RequestUsb()
-        {
-            try
-            {
-                var manager=Manager;var device=GetDevice(manager);
-                if(device==null){Refresh();return;}
-                if(!manager.HasPermission(device))
-                {
-                    var intent=new Intent(this,typeof(BavarianUsbPermissionReceiver));
-                    intent.SetAction(ActivityCommon.AppNameSpace+".BAVARIAN_USB");
-                    var flags=OperatingSystem.IsAndroidVersionAtLeast(31)?PendingIntentFlags.Mutable:0;
-                    var pending=PendingIntent.GetBroadcast(this,510,intent,flags);
-                    manager.RequestPermission(device,pending);
-                    _output.Text="Grant USB permission, then press Check USB again.";
-                }
-                Refresh();
-            }
-            catch(Exception ex){_output.Text=BavarianLanguage.Error("USB permission request failed",ex);}
-        }
+        private void RequestUsb(){BavarianUi.NavigateHome(this,0);}
         private async Task ScanFaultsAsync()
         {
             if(_busy)return;
             UsbManager manager;
-            UsbDevice device;
+            BavarianEndpoint device;
             try{manager=Manager;device=GetDevice(manager);}
             catch(Exception ex){_output.Text=Describe(ex);return;}
-            if(device==null||!manager.HasPermission(device)){Refresh();return;}
+            if(device==null||!Ready(manager,device)){Refresh();return;}
             string[] targets=_fullScan?BavarianScanCatalog.AllGroups:new[]{"d_motor.grp","d_egs.grp"};
             bool details=_readDetails.Checked;
             _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
@@ -529,7 +513,7 @@ namespace BmwDeepObd
         {
             if(_busy)return;
             var manager=Manager;var device=GetDevice(manager);
-            if(device==null||!manager.HasPermission(device)){Refresh();return;}
+            if(device==null||!Ready(manager,device)){Refresh();return;}
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource(TimeSpan.FromSeconds(20));
             var token=_cancel.Token;
             _milText.Text=T("MIL: reading...","Check Engine: чтение...");Refresh();
@@ -547,13 +531,12 @@ namespace BmwDeepObd
             try
             {
                 var device=GetDevice(manager);
-                if(device==null||device.DeviceName!=deviceName||!manager.HasPermission(device))throw new IOException("USB changed");
+                if(device==null||device.DeviceName!=deviceName||!Ready(manager,device))throw new IOException("Adapter changed");
                 VerifyFile("obd.prg","a7601df89cfb54bb1f966e5d44a97a6e0d6de774df273f2286454bcfa5d891de");
                 using var ediabas=new EdiabasNet();
                 ediabas.SetConfigProperty("EcuPath",Root);ediabas.SgbdFileName="obd.prg";
                 ediabas.AbortJobFunc=()=>token.IsCancellationRequested;
-                var transport=new EdInterfaceObd();ediabas.EdInterfaceClass=transport;transport.ComPort=EdFtdiInterface.PortId+"0";
-                transport.ConnectParameter=new EdFtdiInterface.ConnectParameterType(manager);
+                var transport=new EdInterfaceObd();ediabas.EdInterfaceClass=transport;BavarianConnection.Configure(this,manager,device,transport);
                 using var reg=token.Register(()=>transport.TransmitCancel(true));
                 ediabas.ArgString="ALL;ID;0x01";ediabas.ArgBinaryStd=null;ediabas.ResultsRequests=string.Empty;
                 token.ThrowIfCancellationRequested();ediabas.ExecuteJob("OBD_STATUS_LESEN_FUNKTIONAL");token.ThrowIfCancellationRequested();
@@ -586,7 +569,7 @@ namespace BmwDeepObd
         {
             if(_busy||!_scanIdentities.TryGetValue(group,out var ident)||ident.Identity!=identity||ident.Variant!=variant||!_scanIdentities.TryGetValue("d_motor.grp",out var engine))return;
             var manager=Manager;var device=GetDevice(manager);
-            if(device==null||device.DeviceName!=_scanDevice||!manager.HasPermission(device)){Refresh();return;}
+            if(device==null||device.DeviceName!=_scanDevice||!Ready(manager,device)){Refresh();return;}
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource(TimeSpan.FromSeconds(45));
             var token=_cancel.Token;
             _output.Text=T("Saving pre-clear scan...","Сохранение перед удалением...");Refresh();
@@ -615,10 +598,10 @@ namespace BmwDeepObd
             if(_busy)return;
             string name=Selected;
             if(name==null || !(AutoMode?Groups.ContainsKey(name):Approved.ContainsKey(name)))return;
-            UsbManager manager; UsbDevice device;
+            UsbManager manager; BavarianEndpoint device;
             try { manager=Manager; device=GetDevice(manager); }
             catch(Exception ex) { _output.Text=BavarianLanguage.Error("USB check failed",ex); return; }
-            if(device==null || !manager.HasPermission(device)){Refresh();return;}
+            if(device==null || !Ready(manager,device)){Refresh();return;}
             if(operation!="IDENT" && (_identified!=name || _deviceName!=device.DeviceName || (!AutoMode&&!_confirm.Checked) || _fingerprint==null || _resolved==null))return;
             if(operation=="IDENT")ResetIdentity();
             string expected=_fingerprint;
@@ -646,7 +629,7 @@ namespace BmwDeepObd
             }
             else if(!_dashboard)_panel.Visibility=ViewStates.Gone;
             _activeDevice=device.DeviceName;
-            Log("START "+operation+" SGBD="+name+" USB="+device.VendorId.ToString("X4")+":"+device.ProductId.ToString("X4"));
+            Log("START "+operation+" SGBD="+name+" USB="+device.Name);
             _busy=true;_cancel=new CancellationTokenSource();
             _cancel.CancelAfter(live?TimeSpan.FromMinutes(10):TimeSpan.FromSeconds(45));
             var token=_cancel.Token;
@@ -654,7 +637,7 @@ namespace BmwDeepObd
             try
             {
                 bool gearbox=name=="d_egs.grp"||name.StartsWith("gs19",StringComparison.Ordinal);
-                string[] jobs=live&&_dashboard?_selectedSignals.ToArray():live||operation=="SNAPSHOT"?(gearbox?GearboxJobs:EngineJobs):extra?(gearbox?GearboxExtra:EngineExtra):new[]{operation};
+                string[] jobs=operation=="ADAPTATIONS"?AdaptationJobs:live&&_dashboard?_selectedSignals.ToArray():live||operation=="SNAPSHOT"?(gearbox?GearboxJobs:EngineJobs):extra?(gearbox?GearboxExtra:EngineExtra):new[]{operation};
                 var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,expected,expectedVariant,token,live,progress,csvPath));
                 if(IsFinishing||IsDestroyed)return;
                 if(token.IsCancellationRequested&&!live)return;
@@ -709,7 +692,7 @@ namespace BmwDeepObd
             {
                 token.ThrowIfCancellationRequested();
                 var current=GetDevice(manager);
-                if(current==null||current.DeviceName!=deviceName||!manager.HasPermission(current))throw new IOException("USB changed");
+                if(current==null||current.DeviceName!=deviceName||!Ready(manager,current))throw new IOException("Adapter changed");
                 bool groupMode=Groups.TryGetValue(name,out string groupHash);
                 if(!groupMode)groupMode=BavarianScanCatalog.TryGroupHash(name,out groupHash);
                 VerifyFile(name,groupMode?groupHash:Approved[name]);
@@ -720,8 +703,7 @@ namespace BmwDeepObd
                 ediabas.AbortJobFunc=()=>token.IsCancellationRequested;
                 var transport=new EdInterfaceObd();
                 ediabas.EdInterfaceClass=transport;
-                transport.ComPort=EdFtdiInterface.PortId+"0";
-                transport.ConnectParameter=new EdFtdiInterface.ConnectParameterType(manager);
+                BavarianConnection.Configure(this,manager,current,transport);
                 using var registration=token.Register(()=>transport.TransmitCancel(true));
                 string variant=name;
                 if(groupMode)
@@ -735,9 +717,9 @@ namespace BmwDeepObd
                         if(!VariantMatches(name,variant))throw new IOException("Detected variant is not approved: "+variant);
                         string variantHash=BavarianScanCatalog.IsExtended(name)&&BavarianScanCatalog.TryVariantHash(name,variant,out string scanHash)?scanHash:Approved[variant];
                         VerifyFile(variant,variantHash);
-                        Log("RESOLVE "+name+" -> "+variant+" "+timer.ElapsedMilliseconds+" ms");
+                        BavarianConnection.Log(this,"ECU resolved: "+variant);Log("RESOLVE "+name+" -> "+variant+" "+timer.ElapsedMilliseconds+" ms");
                     }
-                    catch(Exception ex){Log("RESOLVE FAIL "+name+" "+timer.ElapsedMilliseconds+" ms "+Describe(ex));throw;}
+                    catch(Exception ex){BavarianConnection.Log(this,"Resolve failed: "+ex.GetType().Name);Log("RESOLVE FAIL "+name+" "+timer.ElapsedMilliseconds+" ms "+Describe(ex));throw;}
                 }
                 if(expectedVariant!=null&&expectedVariant!=variant)throw new IOException("ECU variant changed; reconnect.");
                 var lines=new List<string>{"ECU: "+variant};
@@ -754,8 +736,8 @@ namespace BmwDeepObd
                 {
                     token.ThrowIfCancellationRequested();
                     bool allowedExtra=ExtraFor(variant,job);
-                    bool clear=job=="CLEAR_CONFIRMED"&&expected!=null&&expectedVariant==variant&&((name=="d_motor.grp"&&variant=="d50m57e0.prg")||(name=="d_egs.grp"&&variant=="gs19a.prg"))&&!live;
-                    if(job!="IDENT"&&job!="FS_LESEN"&&!EngineJobs.Contains(job)&&!GearboxJobs.Contains(job)&&!allowedExtra&&!clear)throw new InvalidOperationException("Job blocked");
+                    bool clear=!current.Bluetooth&&job=="CLEAR_CONFIRMED"&&expected!=null&&expectedVariant==variant&&((name=="d_motor.grp"&&variant=="d50m57e0.prg")||(name=="d_egs.grp"&&variant=="gs19a.prg"))&&!live;
+                    if(job!="IDENT"&&job!="FS_LESEN"&&!EngineJobs.Contains(job)&&!GearboxJobs.Contains(job)&&!allowedExtra&&!clear&&!(variant=="gs19a.prg"&&!live&&expected!=null&&AdaptationJobs.Contains(job)))throw new InvalidOperationException("Job blocked");
                     var sw=Stopwatch.StartNew();
                     var jobLines=new List<string>();
                     try
@@ -768,7 +750,7 @@ namespace BmwDeepObd
                     if(rows==null||rows.Count<2)throw new IOException("No ECU results");
                     var data=rows.Skip(1).ToArray();
                     var statuses=data.Where(r=>r.ContainsKey("JOB_STATUS")).Select(r=>Convert.ToString(r["JOB_STATUS"].OpData,CultureInfo.InvariantCulture)).ToArray();
-                    if((clear&&statuses.Length==0)||statuses.Any(s=>!string.Equals(s,"OKAY",StringComparison.OrdinalIgnoreCase)))throw new IOException("ECU reported unsuccessful job");
+                    if(((clear||AdaptationJobs.Contains(job))&&statuses.Length==0)||statuses.Any(s=>!string.Equals(s,"OKAY",StringComparison.OrdinalIgnoreCase)))throw new IOException("ECU reported unsuccessful job");
                     if(job=="IDENT"&&!data.Any(r=>r.Keys.Any(k=>k!="JOB_STATUS")))throw new IOException("No identification data");
                     jobLines.Add(job);
                     foreach(var row in data)

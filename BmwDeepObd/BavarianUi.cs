@@ -51,17 +51,33 @@ namespace BmwDeepObd
             var divider=new View(a);divider.SetBackgroundColor(Line);root.AddView(divider,new LinearLayout.LayoutParams(-1,Dp(a,1)));
             var nav=new LinearLayout(a){Orientation=Orientation.Horizontal};nav.SetBackgroundColor(Surface);
             string[] labels=ru?new[]{"Главная","Ошибки","Данные","Инструменты","Настройки"}:new[]{"Home","Diagnostics","Live Data","Tools","Settings"};
-            string[] glyphs={"⌂","◇","≋","⊕","⚙"};
+            
             for(int i=0;i<5;i++)
             {
                 int index=i;
                 var cell=new LinearLayout(a){Orientation=Orientation.Vertical};cell.SetGravity(GravityFlags.Center);cell.SetPadding(0,Dp(a,5),0,Dp(a,5));
-                var icon=Text(a,glyphs[i],23,true);icon.SetTextColor(i==selected?Blue:Muted);icon.Gravity=GravityFlags.Center;cell.AddView(icon);
+                var icon=new NavIcon(a,i,i==selected?Blue:Muted);cell.AddView(icon,new LinearLayout.LayoutParams(Dp(a,25),Dp(a,25)));
                 var label=Text(a,labels[i],10,i==selected);label.SetTextColor(i==selected?Blue:Muted);label.Gravity=GravityFlags.Center;cell.AddView(label);
                 cell.ContentDescription=labels[i];cell.Clickable=true;cell.Focusable=true;cell.Click+=(s,e)=>navigate(index);
                 nav.AddView(cell,new LinearLayout.LayoutParams(0,Dp(a,60),1));
             }
             root.AddView(nav,new LinearLayout.LayoutParams(-1,-2));a.SetContentView(root);return root;
+        }
+        private sealed class NavIcon:View
+        {
+            private readonly int _kind;private readonly Paint _p=new Paint(PaintFlags.AntiAlias);
+            public NavIcon(Context c,int kind,Color color):base(c){_kind=kind;_p.Color=color;}
+            protected override void OnDraw(Canvas canvas)
+            {
+                base.OnDraw(canvas);canvas.Save();canvas.Scale(Width/24f,Height/24f);_p.SetStyle(Paint.Style.Stroke);_p.StrokeWidth=1.8f;_p.StrokeCap=Paint.Cap.Round;_p.StrokeJoin=Paint.Join.Round;
+                void L(float x,float y,float a,float b)=>canvas.DrawLine(x,y,a,b,_p);
+                if(_kind==0){L(3,10,12,3);L(12,3,21,10);canvas.DrawRect(5,10,19,21,_p);canvas.DrawRect(10,15,14,21,_p);}
+                else if(_kind==1){canvas.DrawRoundRect(5,3,19,21,2,2,_p);L(9,8,15,8);L(9,12,15,12);L(9,16,13,16);}
+                else if(_kind==2){canvas.DrawArc(new RectF(3,4,21,22),180,180,false,_p);L(12,13,17,8);canvas.DrawCircle(12,13,1,_p);L(5,17,19,17);}
+                else if(_kind==3){canvas.DrawCircle(12,12,9,_p);L(12,7,12,17);L(7,12,17,12);}
+                else{canvas.DrawCircle(12,12,7,_p);canvas.DrawCircle(12,12,3,_p);for(int i=0;i<8;i++){double t=i*Math.PI/4;L(12+(float)Math.Cos(t)*7,12+(float)Math.Sin(t)*7,12+(float)Math.Cos(t)*10,12+(float)Math.Sin(t)*10);}}
+                canvas.Restore();
+            }
         }
         internal static void NavigateHome(Activity a,int tab)
         {
