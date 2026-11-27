@@ -29,14 +29,14 @@ namespace BmwDeepObd
         {
             _ru=ru;Orientation=Orientation.Vertical;
             _summary=TextLine(this,T("No scan performed.","Чтение ещё не выполнено."),16);
-            _all=new CheckBox(context){Text=T("Show all records (including not occurred)","Все записи (включая не возникавшие)")};
+            _all=new CheckBox(context){Text=T("Show all records (including not occurred)","Все записи (включая не возникавшие)")};BavarianUi.Checkbox(_all);
             AddView(_all);
             _cards=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_cards);
             _all.CheckedChange+=(s,e)=>Render();
         }
         private TextView TextLine(LinearLayout parent,string text,int size)
         {
-            var t=new TextView(Context){Text=text,TextSize=size};t.SetTextIsSelectable(true);parent.AddView(t);return t;
+            var t=BavarianUi.Text(Context,text,size,size>=18);t.SetTextIsSelectable(true);parent.AddView(t);return t;
         }
         private static string Get(Dictionary<string,string> r,string k)=>r.TryGetValue(k,out string value)?value??"":"";
         public void BeginScan(string[] modules){_planned=modules.ToArray();_results.Clear();Render();}
@@ -141,7 +141,7 @@ namespace BmwDeepObd
                 {
                     string code=Code(f),state=State(f);
                     var card=new LinearLayout(Context){Orientation=Orientation.Vertical};
-                    card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));card.SetBackgroundColor(Color.Rgb(22,32,49));
+                    card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));card.Background=BavarianUi.Shape(Context,BavarianUi.Surface);
                     var lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)};
                     _cards.AddView(card,lp);
                     var title=TextLine(card,m.Module+" · "+code,20);title.SetTextColor(Color.White);
@@ -150,7 +150,7 @@ namespace BmwDeepObd
                     TextLine(card,Description(m,code,f),16).SetTextColor(Color.White);
                     if(Get(f,"F_VERSION")=="2"&&Get(f,"F_WARNUNG_NR")=="49")
                         TextLine(card,T("May request a warning lamp; actual MIL state not measured.","Может вызвать контрольную лампу; фактическое состояние MIL не измерено."),13).SetTextColor(Color.Rgb(255,190,92));
-                    var details=new Button(Context){Text=T("Technical details","Технические подробности")};card.AddView(details);
+                    var details=new Button(Context){Text=T("Details  ›","Подробнее  ›")};BavarianUi.Style(details);card.AddView(details);
                     string original=string.Join("\n",f.Select(k=>k.Key+": "+k.Value));
                     if(state=="")TextLine(card,Get(f,"F_VORHANDEN_TEXT"),13).SetTextColor(Color.Rgb(180,192,209));
                     if(int.TryParse(Get(f,"F_ORT_NR"),NumberStyles.Integer,CultureInfo.InvariantCulture,out int codeNum)&&m.Details!=null&&m.Details.TryGetValue(codeNum,out var more)&&more.Count==1)

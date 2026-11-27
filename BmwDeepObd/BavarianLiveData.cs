@@ -338,19 +338,17 @@ namespace BmwDeepObd
         {
             base.OnCreate(savedInstanceState);
             SupportActionBar?.Hide();
-            var scroll=new ScrollView(this){FillViewport=true};scroll.SetFitsSystemWindows(true);
-            var body=new LinearLayout(this){Orientation=Orientation.Vertical};
-            body.SetPadding(20,20,20,20);scroll.AddView(body);SetContentView(scroll);
-            body.AddView(new TextView(this){Text="DEMO · SIMULATED DATA · NO VEHICLE CONNECTION",TextSize=18});
-            var start=new Button(this){Text="Start demo + CSV"};body.AddView(start);start.Click+=(s,e)=>StartDemo();
-            var stop=new Button(this){Text="Stop demo"};body.AddView(stop);stop.Click+=(s,e)=>StopDemo();
-            var export=new Button(this){Text="Export demo CSV"};body.AddView(export);export.Click+=(s,e)=>{
+            BavarianUi.Shell(this,2,BavarianLanguage.IsRussian(this),i=>{StopDemo();BavarianUi.NavigateHome(this,i);},out var body);
+            body.AddView(BavarianUi.Text(this,"DEMO · SIMULATED DATA · NO VEHICLE CONNECTION",18,true));
+            var start=new Button(this){Text="Start demo + CSV"};BavarianUi.Style(start,true);body.AddView(start);start.Click+=(s,e)=>StartDemo();
+            var stop=new Button(this){Text="Stop demo"};BavarianUi.Style(stop);body.AddView(stop);stop.Click+=(s,e)=>StopDemo();
+            var export=new Button(this){Text="Export demo CSV"};BavarianUi.Style(export);body.AddView(export);export.Click+=(s,e)=>{
                 StopDemo();
                 if(_file==null||!File.Exists(_file))return;
                 var intent=new Intent(Intent.ActionCreateDocument);intent.AddCategory(Intent.CategoryOpenable);intent.SetType("text/csv");
                 intent.PutExtra(Intent.ExtraTitle,"bavarian-DEMO.csv");StartActivityForResult(intent,612);
             };
-            _status=new TextView(this);body.AddView(_status);
+            _status=BavarianUi.Text(this,"",14);body.AddView(_status);
             _panel=new BavarianLivePanel(this,false);body.AddView(_panel);
             _handler=new Handler(Looper.MainLooper);_tick=new Java.Lang.Runnable(Tick);
         }

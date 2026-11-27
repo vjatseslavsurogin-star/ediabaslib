@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bavarian-v16-service-history-template-apk
+          name: bavarian-v17-premium-ui-template-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7
