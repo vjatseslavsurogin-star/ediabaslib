@@ -20,7 +20,8 @@ namespace BmwDeepObd
         private TextView _usb,_libraryStatus;
         private Button _connect;
         private readonly List<View> _gated=new List<View>();
-        private bool _ru,_ready;
+        private bool _ru,_ready,_returning,_opening;
+        private string _lastRenderSnapshot;
         private string _report="";
         private int _tab,_systemPage;
         private string _system="";
@@ -39,13 +40,15 @@ namespace BmwDeepObd
         }
         protected override void OnNewIntent(Intent intent){base.OnNewIntent(intent);_tab=intent?.GetIntExtra("bavarian_tab",0)??0;_system="";_systemPage=0;Render();}
         protected override void OnSaveInstanceState(Bundle state){state.PutInt("tab",_tab);state.PutString("system",_system);state.PutInt("system_page",_systemPage);base.OnSaveInstanceState(state);}
-        protected override void OnResume(){base.OnResume();Render();RefreshStatus();if(_poll!=null){_handler.RemoveCallbacks(_poll);_handler.PostDelayed(_poll,1000);}}
-        protected override void OnPause(){if(_poll!=null)_handler.RemoveCallbacks(_poll);base.OnPause();}
-        private void Render()
+        protected override void OnResume(){base.OnResume();_opening=false;if(_returning&&(_tab==0||_tab==1)&&_lastRenderSnapshot!=OverviewSnapshot())Render(false);_returning=false;RefreshStatus();if(_poll!=null){_handler.RemoveCallbacks(_poll);_handler.PostDelayed(_poll,1000);}}
+        protected override void OnPause(){_returning=true;if(_poll!=null)_handler.RemoveCallbacks(_poll);base.OnPause();}
+        private string OverviewSnapshot(){var p=GetSharedPreferences("bavarian_overview",FileCreationMode.Private);return string.Join("|",p.All.OrderBy(k=>k.Key).Select(k=>k.Key+"="+k.Value));}
+        private void Render(bool animate=true)
         {
+            _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.2  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
+            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.3  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
@@ -86,7 +89,7 @@ namespace BmwDeepObd
             {
                 if(_system=="")
                 {
-                    BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>{if(_ready)Open("health");},true);
+                    var health=BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>OpenFeature("health"),true);_gated.Add(health);
                     Route(T("Search functions","Поиск функций"),T("Find by name or ECU","По названию или ECU"),SearchFunctions,false);
                     Section(T("Vehicle systems","Системы автомобиля"));
                     foreach(var id in new[]{"engine","gearbox","power","chassis","climate","body"})
@@ -117,6 +120,7 @@ namespace BmwDeepObd
                 Route(T("Language","Язык"),_ru?"Русский":"English",()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("Language / Язык").SetSingleChoiceItems(new[]{"English","Русский"},_ru?1:0,(d,a)=>{BavarianLanguage.SetRussian(this,a.Which==1);_ru=a.Which==1;(d as IDialogInterface)?.Dismiss();Render();}).Show(),false);
                 Route(T("Connection type","Тип подключения"),BavarianConnection.IsBluetooth(this)?"Bluetooth · experimental":"K+DCAN",ChooseAdapter,false);
                 Route(T("Connection log","Журнал соединения"),T("Local event history","Локальная история"),()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Connection log","Журнал соединения")).SetMessage(BavarianConnection.History(this)).SetPositiveButton("OK",(d,a)=>{}).Show(),false);
+                Route(T("Animations","Анимации"),GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("animations",true)?T("Enabled","Включены"):T("Disabled","Выключены"),()=>{var p=GetSharedPreferences("bavarian_home",FileCreationMode.Private);p.Edit().PutBoolean("animations",!p.GetBoolean("animations",true)).Apply();Render(false);},false);
                 Route(T("Home widgets","Карточки главной"),T("Show or hide saved values","Показать или скрыть данные"),()=>{var p=GetSharedPreferences("bavarian_home",FileCreationMode.Private);p.Edit().PutBoolean("metrics",!p.GetBoolean("metrics",true)).Apply();Render();},false);
                 Section(T("Engineering","Инженерный раздел"));
                 Route("DDE",T("Identification and raw ECU details","Идентификация и данные блока"),()=>Open("engine"));
@@ -126,7 +130,7 @@ namespace BmwDeepObd
                 _libraryStatus=Text("",12,false,12);
                 Text("Based on Deep OBD / EdiabasLib · GPL-3.0",12,false,20);
             }
-            RefreshStatus();UpdateLibrary();
+            RefreshStatus();UpdateLibrary();if(animate)BavarianUi.Enter(_body);
         }
         private string SystemName(string id)=>id switch
         {
@@ -173,9 +177,9 @@ namespace BmwDeepObd
         private bool Offline(string id)=>id=="history"||id=="pdf"||id=="logs"||id=="demo";
         private void OpenFeature(string id)
         {
-            if(!Offline(id)&&!_ready)return;
-            if(id=="logs"||id=="pdf"){var i=new Intent(this,typeof(BavarianOfflineActivity));i.PutExtra("reports",id=="pdf");StartActivity(i);}
-            else if(id=="demo")StartActivity(new Intent(this,typeof(BavarianDemoActivity)));
+            if(_opening||(!Offline(id)&&!_ready))return;
+            if(id=="logs"||id=="pdf"){_opening=true;var i=new Intent(this,typeof(BavarianOfflineActivity));i.PutExtra("reports",id=="pdf");StartActivity(i);}
+            else if(id=="demo"){_opening=true;StartActivity(new Intent(this,typeof(BavarianDemoActivity)));}
             else Open(id);
         }
         private void FeatureRoute(string id)
@@ -247,7 +251,7 @@ namespace BmwDeepObd
         private void Route(string title,string subtitle,Action action,bool gated=true)
         {
             var row=new LinearLayout(this){Orientation=Orientation.Horizontal};row.SetGravity(GravityFlags.CenterVertical);
-            row.Background=BavarianUi.Shape(this,BavarianUi.Surface);row.SetPadding(Dp(14),Dp(12),Dp(14),Dp(12));row.SetMinimumHeight(Dp(65));
+            row.Background=BavarianUi.TouchSurface(this,BavarianUi.Surface,14);row.SetPadding(Dp(14),Dp(12),Dp(14),Dp(12));row.SetMinimumHeight(Dp(65));
             var bar=new View(this);bar.Background=BavarianUi.Shape(this,BavarianUi.Blue,2);row.AddView(bar,new LinearLayout.LayoutParams(Dp(3),Dp(30)){RightMargin=Dp(12)});
             var labels=new LinearLayout(this){Orientation=Orientation.Vertical};
             labels.AddView(BavarianUi.Text(this,title,17,true));labels.AddView(BavarianUi.Text(this,subtitle,12));row.AddView(labels,new LinearLayout.LayoutParams(0,-2,1));
@@ -285,6 +289,7 @@ namespace BmwDeepObd
         }
         private void Open(string mode)
         {
+            if(_opening)return;_opening=true;
             var intent=new Intent(this,typeof(BavarianVehicleActivity));intent.PutExtra("bavarian_mode",mode);StartActivity(intent);
         }
         private async Task LoadLibraryAsync()

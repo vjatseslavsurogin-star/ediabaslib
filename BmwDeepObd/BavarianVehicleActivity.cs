@@ -90,6 +90,7 @@ namespace BmwDeepObd
         private BavarianLivePanel _panel;
         private string _csvExport;
         private bool _liveRunning;
+        private int _liveGeneration;
         private string CsvDir=>Path.Combine(FilesDir.AbsolutePath,"bavarian-csv");
         private string CsvPrefix=>_group=="d_egs.grp"?"egs":"dde";
         private const int CsvRequest=611;
@@ -122,8 +123,8 @@ namespace BmwDeepObd
             _health=requested=="health";
             _scopedGroups=requested switch {"fault_engine"=>new[]{"d_motor.grp"},"fault_gearbox"=>new[]{"d_egs.grp"},"fault_chassis"=>new[]{"d_dsc.grp"},"fault_climate"=>new[]{"d_klima.grp"},"fault_body"=>new[]{"d_cas.grp","d_kombi.grp","d_lm.grp","d_ccc.grp","d_pdc.grp"},_=>null};
             _fullScan=requested=="vehicle_scan"||_health;
-            _serviceScreen=requested=="service"||requested=="history";
-            _faultScreen=requested=="faults"||_fullScan||_serviceScreen||_scopedGroups!=null;
+            _serviceScreen=requested=="service";
+            _faultScreen=requested=="faults"||requested=="history"||_fullScan||_serviceScreen||_scopedGroups!=null;
             _injectors=requested=="injectors";_adaptations=requested=="adaptations";
             _dashboard=requested=="live_engine"||requested=="live_egs"||_injectors;
             _group=requested=="engine"||requested=="live_engine"||_injectors?"d_motor.grp":requested=="transmission"||requested=="live_egs"||_adaptations?"d_egs.grp":null;
@@ -203,7 +204,7 @@ namespace BmwDeepObd
             _extra=AddButton(T("Extra signals · experimental","Дополнительные сигналы · эксперимент"),async(s,e)=>await RunAsync("EXTRA"));
             if(_dashboard)_extra.Visibility=ViewStates.Gone;
             _csv=AddButton(T("Export latest CSV","Сохранить последний CSV"),(s,e)=>ExportCsv());
-            if(_adaptations)_adaptButton=AddButton(T("Read adaptations · raw ECU fields","Читать адаптации · поля ECU"),async(s,e)=>{if(_identified==null)await RunAsync("IDENT");if(_resolved=="gs19a.prg")await RunAsync("ADAPTATIONS");else _output.Text=T("GS19A required","Требуется GS19A");});
+            if(_adaptations)_adaptButton=AddButton(T("Read adaptations · raw ECU fields","Читать адаптации · поля ECU"),async(s,e)=>{if(_identified==null)await RunAsync("IDENT");if(_visible&&!IsFinishing&&!IsDestroyed&&_resolved=="gs19a.prg")await RunAsync("ADAPTATIONS");else _output.Text=T("GS19A required","Требуется GS19A");});
             _panel=new BavarianLivePanel(this,_group=="d_egs.grp");
             if(_dashboard){var viewMode=AddButton(T("Switch gauges / tiles","Приборы / плитки"),(s,e)=>{if(!_busy)_panel.ToggleGauges();});}
             _panel.Visibility=_dashboard?ViewStates.Visible:ViewStates.Gone;
@@ -224,7 +225,7 @@ namespace BmwDeepObd
             Refresh();
         }
 
-        protected override void OnResume(){base.OnResume();_visible=true;if(_state!=null)Refresh();if(_poll!=null)_handler.PostDelayed(_poll,1000);}
+        protected override void OnResume(){base.OnResume();_visible=true;if(_state!=null)Refresh();if(_poll!=null){_handler.RemoveCallbacks(_poll);_handler.PostDelayed(_poll,1000);}}
         protected override void OnStop(){_maintenanceIdentity=null;_maintenanceReadAt=0;_visible=false;_scanIdentities.Clear();if(_poll!=null)_handler.RemoveCallbacks(_poll);_cancel?.Cancel();ResetIdentity();base.OnStop();}
         private void ResetIdentity(){bool had=_identified!=null;_identified=null;_deviceName=null;_fingerprint=null;_resolved=null;if(had&&_detected!=null)_detected.Text=T("ECU not currently verified.","Блок сейчас не подтверждён.");if(_confirm!=null&&_confirm.Checked)_confirm.Checked=false;}
         private static readonly object LogLock=new object();
@@ -252,7 +253,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V2.2 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V2.3 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -316,7 +317,7 @@ namespace BmwDeepObd
             _live.Enabled=_dashboard?!_busy&&permitted&&(_identified==null||verifiedVariant):ready&&AutoMode&&verifiedVariant;
             if(_dashboard){_live.Visibility=_busy?ViewStates.Gone:ViewStates.Visible;_stopLive.Visibility=_busy?ViewStates.Visible:ViewStates.Gone;_actions.Enabled=!_busy;}
             _extra.Enabled=ready&&AutoMode&&verifiedVariant;
-            if(_adaptButton!=null)_adaptButton.Enabled=!_busy&&permitted&&(_identified==null||_resolved=="gs19a.prg");
+            if(_adaptButton!=null)_adaptButton.Enabled=_visible&&!_busy&&permitted&&(_identified==null||_resolved=="gs19a.prg");
             _stopLive.Enabled=_busy;
             if(_chooseSignals!=null)_chooseSignals.Enabled=!_busy;
             _csv.Enabled=!_busy&&AutoMode&&LatestCsv()!=null;
@@ -634,7 +635,7 @@ namespace BmwDeepObd
             string expectedVariant=_resolved;
             bool live=operation=="LIVE", extra=operation=="EXTRA";
             if((live||extra)&&(!AutoMode||(expectedVariant!="d50m57e0.prg"&&expectedVariant!="gs19a.prg")))return;
-            _liveRunning=live;
+            _liveRunning=live;int generation=++_liveGeneration;
             IProgress<BavarianLiveFrame> progress=null;
             string csvPath=null;
             if(live)
@@ -646,11 +647,10 @@ namespace BmwDeepObd
                     csvPath=Path.Combine(CsvDir,CsvPrefix+"-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff",CultureInfo.InvariantCulture)+".csv");
                 }
                 catch(Exception ex){_output.Text=Describe(ex);_liveRunning=false;return;}
-                _panel.ResetHistory();
-                _panel.ShowSelection(_dashboard?_selectedSignals:BaseSignals);
+                _panel.PrepareSession(_dashboard?_selectedSignals:BaseSignals);
                 _panel.Visibility=ViewStates.Visible;
                 progress=new Progress<BavarianLiveFrame>(frame=>{
-                    if(!IsFinishing&&!IsDestroyed&&_visible&&_liveRunning){_panel.UpdateFrame(frame);SaveLiveOverview(frame);}
+                    if(!IsFinishing&&!IsDestroyed&&_visible&&_liveRunning&&generation==_liveGeneration){_panel.UpdateFrame(frame);SaveLiveOverview(frame);}
                 });
             }
             else if(!_dashboard)_panel.Visibility=ViewStates.Gone;
@@ -665,8 +665,8 @@ namespace BmwDeepObd
                 bool gearbox=name=="d_egs.grp"||name.StartsWith("gs19",StringComparison.Ordinal);
                 string[] jobs=operation=="ADAPTATIONS"?AdaptationJobs:live&&_dashboard?_selectedSignals.ToArray():live||operation=="SNAPSHOT"?(gearbox?GearboxJobs:EngineJobs):extra?(gearbox?GearboxExtra:EngineExtra):new[]{operation};
                 var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,expected,expectedVariant,token,live,progress,csvPath));
-                if(IsFinishing||IsDestroyed)return;
-                if(token.IsCancellationRequested&&!live)return;
+                if(IsFinishing||IsDestroyed||!_visible)return;
+                if(token.IsCancellationRequested&&!live){_output.Text=T("Request cancelled.","Запрос отменён.");return;}
                 _output.Text=live?T("Live session ended. Export CSV to save the readings.","Сессия завершена. Сохрани показания через CSV.")+"\n"+result.Text:result.Text;
                 _ok+=result.Ok;_failed+=result.Failed;
                 if(operation=="IDENT")

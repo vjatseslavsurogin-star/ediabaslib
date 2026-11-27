@@ -252,7 +252,7 @@ namespace BmwDeepObd
         private double? _value;
         private readonly Paint _paint=new Paint(PaintFlags.AntiAlias);
         public BavarianGauge(Context c,double max):base(c){_max=max;}
-        public void SetValue(double? value){_value=value;Invalidate();}
+        public void SetValue(double? value){if(_value==value)return;_value=value;Invalidate();}
         protected override void OnDraw(Canvas canvas)
         {
             base.OnDraw(canvas);float inset=6*Resources.DisplayMetrics.Density;
@@ -331,7 +331,8 @@ namespace BmwDeepObd
             if(_rail!=null)_rail.Visibility=jobs.Contains("STATUS_RAILDRUCK_IST")&&jobs.Contains("STATUS_RAILDRUCK_SOLL")?ViewStates.Visible:ViewStates.Gone;
             _title.Text=_ru?"Ожидание данных":"Waiting for readings";
         }
-        public void ResetHistory(){_cylinders?.ClearValues();foreach(var value in _readouts.Values)value.Text="—";foreach(var gauge in _gauges.Values)gauge.SetValue(null);if(_slip!=null)_slip.Text=_ru?"Разность оборотов: —":"Speed difference: —";_title.Text="Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
+        public void PrepareSession(string[] jobs){if(!_selection.SequenceEqual(jobs))ShowSelection(jobs);else ResetHistory();}
+        public void ResetHistory(){_cylinders?.ClearValues();foreach(var value in _readouts.Values)value.Text="—";foreach(var gauge in _gauges.Values)gauge.SetValue(null);if(_slip!=null)_slip.Text=_ru?"Разность оборотов: —":"Speed difference: —";_title.Text=_ru?"Ожидание данных":"Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
         public void MarkStopped(){_title.Text=(_ru?"Остановлено · последние показания":"Stopped · last readings");}
         public void UpdateFrame(BavarianLiveFrame frame)
         {
@@ -343,7 +344,7 @@ namespace BmwDeepObd
                 if(_gauges.TryGetValue(s.Job,out var gauge))gauge.SetValue(s.Value);
                 string unit=s.Unit=="deg C"||s.Unit=="Grad C"?"°C":s.Unit=="hPa"?"mbar":s.Unit;
                 string fmt=s.Job=="STATUS_MOTORDREHZAHL"||s.Job=="STATUS_ISTGANG"?"0":s.Job=="STATUS_UBATT"?"0.00":"0.0";
-                value.Text=string.IsNullOrWhiteSpace(s.StateText)?s.Value.ToString(fmt,CultureInfo.InvariantCulture)+" "+unit:s.StateText+" ("+s.Value.ToString("0",CultureInfo.InvariantCulture)+")";
+                string next=string.IsNullOrWhiteSpace(s.StateText)?s.Value.ToString(fmt,CultureInfo.InvariantCulture)+" "+unit:s.StateText+" ("+s.Value.ToString("0",CultureInfo.InvariantCulture)+")";if(value.Text!=next)value.Text=next;
             }
             if(_slip!=null&&_slip.Visibility==ViewStates.Visible)
             {

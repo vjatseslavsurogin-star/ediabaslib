@@ -17,6 +17,17 @@ namespace BmwDeepObd
         {
             var s=new GradientDrawable();s.SetColor(color);s.SetCornerRadius(Dp(c,radius));return s;
         }
+        internal static bool Animations(Context c)=>c.GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("animations",true)&&(!OperatingSystem.IsAndroidVersionAtLeast(26)||Android.Animation.ValueAnimator.AreAnimatorsEnabled());
+        internal static Drawable TouchSurface(Context c,Color color,int radius=14)
+        {
+            return new RippleDrawable(ColorStateList.ValueOf(Color.ParseColor("#3062ABFF")),Shape(c,color,radius),Shape(c,Color.White,radius));
+        }
+        internal static void Enter(View view)
+        {
+            if(!Animations(view.Context))return;
+            view.Animate().Cancel();view.Alpha=0.80f;view.TranslationY=Dp(view.Context,5);
+            view.Animate().Alpha(1f).TranslationY(0f).SetDuration(150).Start();
+        }
         internal static TextView Text(Context c,string text,int size,bool title=false)
         {
             var t=new TextView(c){Text=text,TextSize=size};t.SetTextColor(title?White:Muted);
@@ -29,7 +40,7 @@ namespace BmwDeepObd
             states.AddState(new[]{-Android.Resource.Attribute.StateEnabled},Shape(c,Color.ParseColor("#1B2533"),10));
             states.AddState(new[]{Android.Resource.Attribute.StatePressed},Shape(c,Color.ParseColor("#294970"),10));
             states.AddState(Array.Empty<int>(),Shape(c,primary?Color.ParseColor("#2368C8"):Surface,10));
-            b.Background=states;b.SetPadding(Dp(c,14),Dp(c,10),Dp(c,14),Dp(c,10));b.SetMinHeight(Dp(c,46));
+            b.Background=new RippleDrawable(ColorStateList.ValueOf(Color.ParseColor("#2862ABFF")),states,Shape(c,Color.White,10));b.SetPadding(Dp(c,14),Dp(c,10),Dp(c,14),Dp(c,10));b.SetMinHeight(Dp(c,46));
             b.SetTextColor(new ColorStateList(new[]{new[]{-Android.Resource.Attribute.StateEnabled},Array.Empty<int>()},new[]{Color.ParseColor("#77869A").ToArgb(),White.ToArgb()}));
         }
         internal static Button Action(LinearLayout parent,string label,EventHandler click,bool primary=false)
@@ -58,7 +69,7 @@ namespace BmwDeepObd
                 var cell=new LinearLayout(a){Orientation=Orientation.Vertical};cell.SetGravity(GravityFlags.Center);cell.SetPadding(0,Dp(a,5),0,Dp(a,5));
                 var icon=new NavIcon(a,i,i==selected?Blue:Muted);cell.AddView(icon,new LinearLayout.LayoutParams(Dp(a,25),Dp(a,25)));
                 var label=Text(a,labels[i],9,i==selected);label.SetTextColor(i==selected?Blue:Muted);label.Gravity=GravityFlags.Center;cell.AddView(label);
-                cell.ContentDescription=labels[i];cell.Clickable=true;cell.Focusable=true;cell.Click+=(s,e)=>navigate(index);
+                cell.Background=TouchSurface(a,i==selected?Color.ParseColor("#23364D"):Surface,10);cell.ContentDescription=labels[i];cell.Clickable=true;cell.Focusable=true;cell.Click+=(s,e)=>navigate(index);
                 nav.AddView(cell,new LinearLayout.LayoutParams(0,Dp(a,60),1));
             }
             root.AddView(nav,new LinearLayout.LayoutParams(-1,-2));a.SetContentView(root);return root;

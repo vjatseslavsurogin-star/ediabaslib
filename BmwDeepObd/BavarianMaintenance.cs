@@ -164,10 +164,10 @@ namespace BmwDeepObd
                             var history=new[]{"LETZTER","ZWEITLETZTER","DRITTLETZTER","VIERTLETZTER","FUENFTLETZTER"};
                             lines.Add(T("Replacement history (ECU records):","История замен (записи ECU):"));
                             foreach(var item in history)lines.Add("  "+Format(pm1,"STAT_BATTERIETAUSCH_"+item));
-                            foreach(var row in pm2)foreach(var kv in row.Where(k=>k.Key.StartsWith("STAT_IBS_FEHLERZAEHLER")&&k.Key.EndsWith("_WERT")))lines.Add(kv.Key+": "+kv.Value);
+                            foreach(var row in pm1.Concat(pm2))foreach(var kv in row.Where(k=>(k.Key.StartsWith("STAT_IBS_FEHLERZAEHLER")||k.Key.StartsWith("STAT_KTIBS_FEHLERZAEHLER")||k.Key.StartsWith("STAT_KTBS_FEHLERZAEHLER"))&&k.Key.EndsWith("_WERT")))lines.Add(kv.Key+": "+kv.Value);
                             if(!write)
                             {
-                                if(mode=="battery"&&!current.Bluetooth&&Number(pm2,"STAT_BATTERIE_KAPAZITAET","Ah")>0&&Number(voltage,"STAT_UBATT","V")>=12.0&&Number(voltage,"STAT_UBATT","V")<=15.0)result.Identity=id;
+                                if(mode=="battery"&&!current.Bluetooth){try{if(Number(pm2,"STAT_BATTERIE_KAPAZITAET","Ah")>0&&Number(voltage,"STAT_UBATT","V")>=12.0&&Number(voltage,"STAT_UBATT","V")<=15.0)result.Identity=id;}catch(IOException){lines.Add(T("Registration unavailable: unverified preconditions.","Регистрация недоступна: условия не подтверждены."));}}
                             }
                             else
                             {

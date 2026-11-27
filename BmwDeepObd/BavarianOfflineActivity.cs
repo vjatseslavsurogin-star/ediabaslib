@@ -5,6 +5,7 @@ using System.Linq;
 using System.Globalization;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 using Android.App;
 using Android.Content;
 using Android.OS;
@@ -19,7 +20,7 @@ namespace BmwDeepObd
     [Activity(Label="Saved diagnostics",Exported=false,Name=ActivityCommon.AppNameSpace+"."+nameof(BavarianOfflineActivity))]
     public class BavarianOfflineActivity:AppCompatActivity
     {
-        private bool _ru,_reports;
+        private bool _ru,_reports,_loading;
         private LinearLayout _body,_content;
         private TextView _state;
         private string _report;
@@ -38,26 +39,28 @@ namespace BmwDeepObd
             {
                 BavarianUi.Action(_body,T("Choose session A","Выбрать сессию A"),(s,e)=>ChooseLog(false),true);
                 BavarianUi.Action(_body,T("Choose session B · optional","Выбрать сессию B · необязательно"),(s,e)=>ChooseLog(true));
-                BavarianUi.Action(_body,T("Clear comparison","Очистить сравнение"),(s,e)=>{_second=Array.Empty<Sample>();_b="";RenderSignals();});
+                BavarianUi.Action(_body,T("Clear comparison","Очистить сравнение"),(s,e)=>{if(_loading)return;_second=Array.Empty<Sample>();_b="";RenderSignals();});
             }
             _state=BavarianUi.Text(this,"",13);_body.AddView(_state);
             _content=new LinearLayout(this){Orientation=Orientation.Vertical};_body.AddView(_content);
         }
         private void ChooseLog(bool second)
         {
+            if(_loading)return;
             try
             {
                 string dir=Path.Combine(FilesDir.AbsolutePath,"bavarian-csv");
                 var files=Directory.Exists(dir)?Directory.GetFiles(dir,"*.csv").OrderByDescending(x=>x,StringComparer.Ordinal).ToArray():Array.Empty<string>();
                 if(files.Length==0){_state.Text=T("No saved logs.","Нет сохранённых логов.");return;}
-                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetItems(files.Select(Path.GetFileName).ToArray(),(d,a)=>{
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetItems(files.Select(Path.GetFileName).ToArray(),async(d,a)=>{
+                    if(_loading)return;_loading=true;string file=files[a.Which];_state.Text=T("Loading CSV…","Чтение CSV…");
                     try
                     {
-                        var samples=ReadCsv(files[a.Which]);if(samples.Length==0)throw new IOException("No valid ECU samples");
+                        var samples=await Task.Run(()=>ReadCsv(file));if(IsFinishing||IsDestroyed)return;if(samples.Length==0)throw new IOException("No valid ECU samples");
                         if(second){_second=samples;_b=Path.GetFileName(files[a.Which]);}
                         else{_first=samples;_a=Path.GetFileName(files[a.Which]);}
                         RenderSignals();
-                    }catch(Exception ex){_state.Text=ex.Message;}
+                    }catch(Exception ex){if(!IsFinishing&&!IsDestroyed)_state.Text=ex.Message;}finally{_loading=false;}
                 }).Show();
             }catch(Exception ex){_state.Text=ex.Message;}
         }
@@ -85,7 +88,8 @@ namespace BmwDeepObd
         {
             _content.RemoveAllViews();_state.Text="A: "+(_a==""?"—":_a)+"\nB: "+(_b==""?"—":_b);
             if(_first.Length==0)return;
-            var keys=_first.Select(x=>(x.Variant,x.Job,x.Unit)).Distinct().Where(k=>_second.Length==0||_second.Any(x=>x.Variant==k.Variant&&x.Job==k.Job&&x.Unit==k.Unit)).ToArray();
+            var secondKeys=_second.Select(x=>(x.Variant,x.Job,x.Unit)).ToHashSet();
+            var keys=_first.Select(x=>(x.Variant,x.Job,x.Unit)).Distinct().Where(k=>_second.Length==0||secondKeys.Contains(k)).ToArray();
             if(keys.Length==0){_content.AddView(BavarianUi.Text(this,T("No comparable parameters.","Нет сопоставимых параметров."),15,true));return;}
             foreach(var k in keys)
             {
@@ -104,12 +108,13 @@ namespace BmwDeepObd
         private sealed class LogPlot:View
         {
             private readonly Sample[] _a,_b;private readonly Paint _p=new Paint(PaintFlags.AntiAlias);
-            public LogPlot(Context c,Sample[] a,Sample[] b):base(c){_a=a;_b=b;}
+            private readonly double _min,_max;
+            public LogPlot(Context c,Sample[] a,Sample[] b):base(c){_a=a;_b=b;var all=a.Concat(b);_min=all.Select(s=>s.Value).DefaultIfEmpty(0).Min();_max=all.Select(s=>s.Value).DefaultIfEmpty(1).Max();}
             protected override void OnDraw(Canvas canvas)
             {
                 base.OnDraw(canvas);canvas.DrawColor(BavarianUi.Surface);
-                var all=_a.Concat(_b).ToArray();if(all.Length==0)return;
-                double min=all.Min(s=>s.Value),max=all.Max(s=>s.Value);if(max-min<1e-8){min-=0.5;max+=0.5;}
+                if(_a.Length==0&&_b.Length==0)return;
+                double min=_min,max=_max;if(max-min<1e-8){min-=0.5;max+=0.5;}
                 double Seconds(Sample[] s)=>s.Length==0?0:(s[s.Length-1].Time-s[0].Time).TotalSeconds;
                 double duration=Math.Max(1,Math.Max(Seconds(_a),Seconds(_b)));
                 float left=12,top=30,right=Width-12,bottom=Height-30;if(right<=left||bottom<=top)return;
