@@ -41,7 +41,7 @@ namespace BmwDeepObd
         protected override void OnCreate(Bundle savedInstanceState)
         {
             base.OnCreate(savedInstanceState);
-            _ru = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru";
+            _ru = BavarianLanguage.IsRussian(this);
             SupportActionBar?.Hide();
             var scroll = new ScrollView(this) { FillViewport = true };
             scroll.SetFitsSystemWindows(true);
@@ -108,7 +108,7 @@ namespace BmwDeepObd
             intent.PutExtra(Intent.ExtraAllowMultiple, true);
             intent.AddFlags(ActivityFlags.GrantReadUriPermission);
             try { StartActivityForResult(intent, ImportRequest); }
-            catch (Exception ex) { _jobs.Text = ex.Message; }
+            catch (Exception ex) { _jobs.Text = BavarianLanguage.Error("ECU operation failed", ex); }
         }
 
         protected override async void OnActivityResult(int requestCode, Result resultCode, Intent data)
@@ -133,7 +133,7 @@ namespace BmwDeepObd
                 string report = await Task.Run(() => ImportFiles(uris));
                 if (!IsFinishing && !IsDestroyed) _jobs.Text = report;
             }
-            catch (Exception ex) { if (!IsFinishing && !IsDestroyed) _jobs.Text = ex.Message; }
+            catch (Exception ex) { if (!IsFinishing && !IsDestroyed) _jobs.Text = BavarianLanguage.Error("ECU operation failed", ex); }
             finally
             {
                 _busy = false;
@@ -161,7 +161,7 @@ namespace BmwDeepObd
                     string target = Path.Combine(LibraryPath, name);
                     if (File.Exists(target))
                     {
-                        lines.Add(name + ": " + T("already exists; skipped", "уже существует; пропущен"));
+                        lines.Add(name + ": " + "already exists; skipped");
                         continue;
                     }
                     if (ListFiles().Length >= MaxFiles) throw new IOException("Library file limit reached");
@@ -204,7 +204,7 @@ namespace BmwDeepObd
                     }
                     lines.Add(name + ": " + T("imported", "импортирован"));
                 }
-                catch (Exception ex) { lines.Add(name + ": " + ex.Message); }
+                catch (Exception ex) { lines.Add(name + ": " + BavarianLanguage.Error("Import failed", ex)); }
                 finally { if (temp != null && File.Exists(temp)) File.Delete(temp); }
             }
             return string.Join("\n", lines);
@@ -238,7 +238,7 @@ namespace BmwDeepObd
                 if (!IsFinishing && !IsDestroyed)
                     _jobs.Text = name + " · " + jobs.Length + "\n" + string.Join("\n", jobs.Take(2000));
             }
-            catch (Exception ex) { if (!IsFinishing && !IsDestroyed) _jobs.Text = ex.Message; }
+            catch (Exception ex) { if (!IsFinishing && !IsDestroyed) _jobs.Text = BavarianLanguage.Error("ECU operation failed", ex); }
             finally
             {
                 _busy = false;

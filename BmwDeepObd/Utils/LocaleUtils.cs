@@ -52,6 +52,10 @@ namespace BmwDeepObd
 
         public static string GetLocaleSetting(Context context = null, bool updateRecent = false)
         {
+#if BAVARIAN_USB_BASELINE
+            if (updateRecent) ActivityCommon.RecentLocale = "en";
+            return "en";
+#else
             try
             {
                 bool useRecent = false;
@@ -116,6 +120,7 @@ namespace BmwDeepObd
             {
                 return string.Empty;
             }
+#endif
         }
 
         public static Context GetLocaleContext(Context context)

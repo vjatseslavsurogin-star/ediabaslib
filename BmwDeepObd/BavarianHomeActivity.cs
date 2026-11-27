@@ -28,7 +28,8 @@ namespace BmwDeepObd
         protected override void OnCreate(Bundle savedInstanceState)
         {
             base.OnCreate(savedInstanceState);
-            _ru = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru";
+            _ru = BavarianLanguage.IsRussian(this);
+            BavarianLanguage.EnsureEngineEnglish();
             SupportActionBar?.Hide();
             Window.SetStatusBarColor(C("#0C1422"));
             Window.SetNavigationBarColor(C("#0C1422"));
@@ -40,8 +41,20 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  0.5 PREVIEW", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  0.6 PREVIEW", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
+            AddButton(T("Language: English / Русский", "Язык: Русский / English"), (s,e) =>
+            {
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this)
+                    .SetTitle("Language / Язык")
+                    .SetSingleChoiceItems(new[] { "English", "Русский" }, _ru ? 1 : 0, (dialog, args) =>
+                    {
+                        BavarianLanguage.SetRussian(this, args.Which == 1);
+                        (dialog as Android.Content.IDialogInterface)?.Dismiss();
+                        Recreate();
+                    }).Show();
+            });
+            AddText("Diagnostic errors: English", 13, "#C2CDDD");
             AddText(T("USB ADAPTER", "USB-АДАПТЕР"), 14, "#67B3FF", 24);
             _usb = AddText("", 16, "#F2F6FC");
             AddText(T("DIAGNOSTIC DATA", "ДИАГНОСТИЧЕСКИЕ ДАННЫЕ"), 14, "#67B3FF", 24);
@@ -62,6 +75,7 @@ namespace BmwDeepObd
         protected override void OnResume()
         {
             base.OnResume();
+            BavarianLanguage.EnsureEngineEnglish();
             RefreshStatus();
         }
 
@@ -93,7 +107,7 @@ namespace BmwDeepObd
                 var manager = GetSystemService(UsbService) as UsbManager;
                 var devices = manager?.DeviceList?.Values;
                 if (devices == null || devices.Count == 0)
-                    _usb.Text = T("No USB device detected. Connect the OTG cable.", "USB-устройства не найдены. Подключите кабель через OTG.");
+                    _usb.Text = "No USB device detected. Connect the OTG cable.";
                 else
                     _usb.Text = string.Join("\n", devices.Select(d =>
                         $"{d.VendorId:X4}:{d.ProductId:X4}  " +
@@ -102,12 +116,12 @@ namespace BmwDeepObd
             }
             catch (Exception)
             {
-                _usb.Text = T("USB enumeration failed.", "Ошибка проверки USB.");
+                _usb.Text = "USB enumeration failed.";
             }
             bool assets = !string.IsNullOrEmpty(AssetUtils.GetAssetEcuFilenames());
             _ecu.Text = assets
                 ? T("ECU asset present. Original validation still required.", "Пакет найден. Требуется штатная проверка.")
-                : T("Original ECU package missing. Live diagnostics unavailable; local files can be inspected.", "Оригинальный пакет ECU отсутствует. Онлайн-диагностика недоступна; можно импортировать локальные файлы.");
+                : "ECU package missing. Live diagnostics unavailable; local files can be inspected.";
             _diagnostics.Enabled = assets;
         }
     }

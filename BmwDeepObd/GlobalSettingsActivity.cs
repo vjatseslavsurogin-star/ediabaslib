@@ -783,6 +783,13 @@ namespace BmwDeepObd
                         break;
                 }
 
+                #if BAVARIAN_USB_BASELINE
+                _radioButtonLocaleDefault.Enabled = false;
+                _radioButtonLocaleDe.Enabled = false;
+                _radioButtonLocaleRu.Enabled = false;
+                _radioButtonLocaleEn.Enabled = false;
+                #endif
+
                 switch (ActivityCommon.SelectedTheme ?? ActivityCommon.ThemeDefault)
                 {
                     case ActivityCommon.ThemeType.Light:
@@ -954,6 +961,9 @@ namespace BmwDeepObd
                 locale = string.Empty;
             }
 
+            #if BAVARIAN_USB_BASELINE
+            locale = "en";
+            #endif
             // update locale settings in system
             if (string.IsNullOrEmpty(locale))
             {
