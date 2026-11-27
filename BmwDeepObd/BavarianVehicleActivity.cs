@@ -1,0 +1,234 @@
+#if BAVARIAN_USB_BASELINE
+using System;
+using System.IO;
+using System.Linq;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
+using Android.App;
+using Android.Content;
+using Android.Hardware.Usb;
+using Android.OS;
+using Android.Views;
+using Android.Widget;
+using AndroidX.AppCompat.App;
+using EdiabasLib;
+
+namespace BmwDeepObd
+{
+    [BroadcastReceiver(Exported = false)]
+    public class BavarianUsbPermissionReceiver : BroadcastReceiver
+    {
+        public override void OnReceive(Context context, Intent intent) { }
+    }
+
+    [Activity(Label = "Vehicle diagnostics", Exported = false,
+        Name = ActivityCommon.AppNameSpace + "." + nameof(BavarianVehicleActivity))]
+    public class BavarianVehicleActivity : AppCompatActivity
+    {
+        private static readonly SemaphoreSlim TransportLock = new SemaphoreSlim(1, 1);
+        private static readonly Dictionary<string,string> Approved = new Dictionary<string,string>(StringComparer.Ordinal)
+        {
+            ["d50m57c0.prg"]="9da5becea95792b7befba23aa4731bc8cb0ef9ae4f857a5565af595e2a0ecbfe",
+            ["d50m57d0.prg"]="75751edc17d26199a2300015fc93d2f91d3ad6bd9c208a6595f0e274b615adc4",
+            ["d50m57e0.prg"]="7d3964204c5f6c9f6ba630585d7754ea57b5c5a5adc1cb8d3177a0b2f19370a4",
+            ["d60m57a0.prg"]="5e9ac1f8ff66975d22d74c16a5d3904f3b6177c5610f48ad3cac0e33400fd58c",
+            ["d60m57d0.prg"]="05039bb238c7ebc4bd8acbda18530e8f4936537cafbec86ea8d1a49c179fbfe0",
+            ["d62m57a0.prg"]="2c8597349da72e11780d6c1ec2029fab152ac55640c11fa0379de7cbce95d082",
+            ["d62m57b0.prg"]="5470bf3de295eca45d903fd1434ec4a1c2714aa300d4b1dce6c19884fc65af32",
+            ["gs19.prg"]="48b54e3e6505f53e28e4ac827a420e630eea620dd403488afe1c027ebd6cb235",
+            ["gs19a.prg"]="a4e8e1280a46db684607a5456f8831683eb7ef563236b544ca388c44dd58c266",
+            ["gs19b.prg"]="a7fd76d1ca9a7c8947df65d03ee038e995af5f3afc9ab0aa321e37f8f11bb0bd",
+            ["gs19d.prg"]="a49b6a6f0d036faaa47a6cc34dcb9d1f3b71affa62f37228dfd841cf28ec5b1e"
+        };
+        private static readonly string[] EngineJobs =
+        {
+            "STATUS_MOTORDREHZAHL","STATUS_KUEHLMITTELTEMPERATUR","STATUS_LADEDRUCK_IST",
+            "STATUS_LADEDRUCK_SOLL","STATUS_RAILDRUCK_IST","STATUS_RAILDRUCK_SOLL","STATUS_UBATT"
+        };
+        private static readonly string[] GearboxJobs = { "STATUS_GETRIEBETEMPERATUR", "STATUS_ISTGANG" };
+        private LinearLayout _body;
+        private Spinner _variant;
+        private TextView _state, _output;
+        private Button _permission, _ident, _faults, _snapshot;
+        private string _identified, _deviceName;
+        private bool _busy, _ru;
+        private CancellationTokenSource _cancel;
+        private string Root => Path.Combine(FilesDir.AbsolutePath,"local-ecu");
+        private string T(string en,string ru)=>_ru?ru:en;
+        private int Dp(int n)=>(int)(n*Resources.DisplayMetrics.Density+0.5f);
+
+        protected override void OnCreate(Bundle savedInstanceState)
+        {
+            base.OnCreate(savedInstanceState);
+            _ru=BavarianLanguage.IsRussian(this);
+            SupportActionBar?.Hide();
+            var scroll=new ScrollView(this){FillViewport=true};
+            scroll.SetFitsSystemWindows(true);
+            _body=new LinearLayout(this){Orientation=Orientation.Vertical};
+            _body.SetPadding(Dp(20),Dp(20),Dp(20),Dp(20));
+            scroll.AddView(_body);
+            SetContentView(scroll);
+            AddText(T("Vehicle diagnostics · USB","Диагностика автомобиля · USB"),24);
+            AddText("READ ONLY / EXPERIMENTAL",14);
+            AddText(T("Park safely, ignition on. Select a known ECU variant. Connect only one K+DCAN cable.","Автомобиль должен стоять, зажигание включено. Выберите известный вариант ECU. Подключите один K+DCAN."),15);
+            _state=AddText("",15);
+            _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
+            _variant=new Spinner(this);
+            var variants=Approved.Keys.Where(n=>File.Exists(Path.Combine(Root,n))).ToArray();
+            var adapter=new ArrayAdapter<string>(this,Android.Resource.Layout.SimpleSpinnerItem,variants);
+            adapter.SetDropDownViewResource(Android.Resource.Layout.SimpleSpinnerDropDownItem);
+            _variant.Adapter=adapter;
+            _body.AddView(_variant);
+            _ident=AddButton(T("Identify ECU (IDENT)","Идентификация ECU"),async(s,e)=>await RunAsync("IDENT"));
+            _faults=AddButton(T("Read fault memory","Чтение ошибок"),async(s,e)=>await RunAsync("FS_LESEN"));
+            _snapshot=AddButton(T("Read parameters once","Прочитать параметры"),async(s,e)=>await RunAsync("SNAPSHOT"));
+            AddButton(T("Cancel / disconnect","Отмена / отключение"),(s,e)=>{_identified=null;_deviceName=null;_cancel?.Cancel();Refresh();});
+            _output=AddText("",14);
+            _variant.ItemSelected+=(s,e)=>{_identified=null;_deviceName=null;Refresh();};
+            Refresh();
+        }
+
+        protected override void OnResume(){base.OnResume();if(_state!=null)Refresh();}
+        protected override void OnStop(){_cancel?.Cancel();_identified=null;_deviceName=null;base.OnStop();}
+        private TextView AddText(string text,int size)
+        {
+            var v=new TextView(this){Text=text,TextSize=size,TextIsSelectable=true};
+            var lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(12)};
+            _body.AddView(v,lp);return v;
+        }
+        private Button AddButton(string label,EventHandler click)
+        {
+            var b=new Button(this){Text=label};b.Click+=click;_body.AddView(b);return b;
+        }
+        private UsbManager Manager=>GetSystemService(UsbService) as UsbManager;
+        private UsbDevice GetDevice(UsbManager manager)
+        {
+            if(manager==null)return null;
+            var drivers=EdFtdiInterface.GetDriverList(manager);
+            return drivers.Count==1 ? drivers[0].Device : null;
+        }
+        private string Selected=>_variant?.SelectedItem?.ToString();
+        private void Refresh()
+        {
+            bool permitted=false;
+            try
+            {
+                var manager=Manager; var device=GetDevice(manager);
+                permitted=device!=null && manager.HasPermission(device);
+                if(device==null || device.DeviceName!=_deviceName || !permitted){_identified=null;_deviceName=null;}
+                _state.Text=_busy?"Diagnostic request running...":device==null?"Connect exactly one supported USB adapter.":!permitted?"USB detected. Permission required.":_identified==null?"USB permission granted. ECU not identified.":"ECU responded to IDENT. Confirm variant before interpreting results.";
+            }
+            catch(Exception){_state.Text="USB check failed.";_identified=null;}
+            _permission.Enabled=!_busy;
+            _variant.Enabled=!_busy;
+            _ident.Enabled=!_busy&&permitted&&Selected!=null;
+            bool ready=!_busy&&permitted&&Selected!=null&&Selected==_identified;
+            _faults.Enabled=ready;_snapshot.Enabled=ready;
+        }
+        private void RequestUsb()
+        {
+            try
+            {
+                var manager=Manager;var device=GetDevice(manager);
+                if(device==null){Refresh();return;}
+                if(!manager.HasPermission(device))
+                {
+                    var intent=new Intent(this,typeof(BavarianUsbPermissionReceiver));
+                    intent.SetAction(ActivityCommon.AppNameSpace+".BAVARIAN_USB");
+                    var flags=Build.VERSION.SdkInt>=BuildVersionCodes.S?PendingIntentFlags.Mutable:0;
+                    var pending=PendingIntent.GetBroadcast(this,510,intent,flags);
+                    manager.RequestPermission(device,pending);
+                    _output.Text="Grant USB permission, then press Check USB again.";
+                }
+                Refresh();
+            }
+            catch(Exception ex){_output.Text=BavarianLanguage.Error("USB permission request failed",ex);}
+        }
+        private async Task RunAsync(string operation)
+        {
+            if(_busy)return;
+            string name=Selected;
+            if(name==null || !Approved.ContainsKey(name))return;
+            var manager=Manager;var device=GetDevice(manager);
+            if(device==null || !manager.HasPermission(device)){Refresh();return;}
+            if(operation!="IDENT" && (_identified!=name || _deviceName!=device.DeviceName))return;
+            _busy=true;_cancel=new CancellationTokenSource();
+            _cancel.CancelAfter(TimeSpan.FromSeconds(45));
+            var token=_cancel.Token;
+            Refresh();_output.Text="Waiting for ECU response...";
+            try
+            {
+                string[] jobs=operation=="SNAPSHOT"?(name.StartsWith("gs19",StringComparison.Ordinal)?GearboxJobs:EngineJobs):new[]{operation};
+                var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,token));
+                if(IsFinishing||IsDestroyed||token.IsCancellationRequested)return;
+                _output.Text=result;
+                if(operation=="IDENT"){_identified=name;_deviceName=device.DeviceName;}
+            }
+            catch(Exception ex)
+            {
+                _identified=null;_deviceName=null;
+                if(!IsFinishing&&!IsDestroyed)_output.Text=token.IsCancellationRequested?"Diagnostic request cancelled or timed out.":ex is EdiabasNet.EdiabasNetException ee?"EDIABAS error: "+ee.ErrorCode+" — "+EdiabasNet.GetErrorDescription(ee.ErrorCode):BavarianLanguage.Error("Diagnostic request failed",ex);
+            }
+            finally
+            {
+                _cancel.Dispose();_cancel=null;_busy=false;
+                if(!IsFinishing&&!IsDestroyed)Refresh();
+            }
+        }
+        private string Execute(UsbManager manager,string deviceName,string name,string[] jobs,CancellationToken token)
+        {
+            if(!TransportLock.Wait(0))throw new InvalidOperationException("Transport busy");
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                var current=GetDevice(manager);
+                if(current==null||current.DeviceName!=deviceName||!manager.HasPermission(current))throw new IOException("USB changed");
+                using(var stream=File.OpenRead(Path.Combine(Root,name)))
+                {
+                    string hash=Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+                    if(hash!=Approved[name])throw new IOException("ECU file hash mismatch");
+                }
+                using var ediabas=new EdiabasNet();
+                ediabas.SetConfigProperty("EcuPath",Root);
+                ediabas.SgbdFileName=name;
+                ediabas.AbortJobFunc=()=>token.IsCancellationRequested;
+                var transport=new EdInterfaceObd();
+                ediabas.EdInterfaceClass=transport;
+                transport.ComPort=EdFtdiInterface.PortId+"0";
+                transport.ConnectParameter=new EdFtdiInterface.ConnectParameterType(manager);
+                using var registration=token.Register(()=>transport.TransmitCancel(true));
+                var lines=new List<string>();
+                foreach(string job in jobs)
+                {
+                    token.ThrowIfCancellationRequested();
+                    if(job!="IDENT"&&job!="FS_LESEN"&&!EngineJobs.Contains(job)&&!GearboxJobs.Contains(job))throw new InvalidOperationException("Job blocked");
+                    ediabas.ArgString=string.Empty;
+                    ediabas.ArgBinaryStd=null;
+                    ediabas.ResultsRequests=string.Empty;
+                    ediabas.ExecuteJob(job);
+                    var rows=ediabas.ResultSets;
+                    if(rows==null||rows.Count<2)throw new IOException("No ECU results");
+                    var data=rows.Skip(1).ToArray();
+                    var statuses=data.Where(r=>r.ContainsKey("JOB_STATUS")).Select(r=>Convert.ToString(r["JOB_STATUS"].OpData,CultureInfo.InvariantCulture)).ToArray();
+                    if(statuses.Any(s=>!string.Equals(s,"OKAY",StringComparison.OrdinalIgnoreCase)))throw new IOException("ECU reported unsuccessful job");
+                    if(job=="IDENT"&&!data.Any(r=>r.Keys.Any(k=>k!="JOB_STATUS")))throw new IOException("No identification data");
+                    lines.Add(job);
+                    foreach(var row in data)
+                        foreach(var kv in row)
+                        {
+                            if(kv.Key=="JOB_STATUS")continue;
+                            string value=kv.Value.OpData is byte[] bytes?Convert.ToHexString(bytes):Convert.ToString(kv.Value.OpData,CultureInfo.InvariantCulture);
+                            lines.Add(kv.Key+": "+value);
+                        }
+                    lines.Add("");
+                }
+                return string.Join("\n",lines);
+            }
+            finally{TransportLock.Release();}
+        }
+    }
+}
+#endif

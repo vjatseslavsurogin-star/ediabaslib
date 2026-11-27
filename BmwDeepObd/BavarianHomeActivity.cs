@@ -41,7 +41,7 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  0.7 PREVIEW", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  0.8 PREVIEW", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
             AddButton(T("Language: English / Русский", "Язык: Русский / English"), (s,e) =>
             {
@@ -60,16 +60,13 @@ namespace BmwDeepObd
             AddText(T("DIAGNOSTIC DATA", "ДИАГНОСТИЧЕСКИЕ ДАННЫЕ"), 14, "#67B3FF", 24);
             _ecu = AddText("", 16, "#F2F6FC");
             AddButton(T("Refresh hardware check", "Обновить проверку USB"), (s,e) => RefreshStatus());
-            AddText(BavarianEcuSeed.Initialize(this), 14, "#C2CDDD");
             AddButton(T("Import / inspect local ECU files", "Импорт и просмотр файлов ECU"), (s,e) =>
                 StartActivity(new Intent(this, typeof(BavarianEcuActivity))));
             _diagnostics = AddButton(T("Open diagnostic engine", "Открыть диагностику"), (s,e) =>
             {
-                if (!string.IsNullOrEmpty(AssetUtils.GetAssetEcuFilenames()))
-                    StartActivity(new Intent(this, typeof(ActivityMain)));
+                StartActivity(new Intent(this, typeof(BavarianVehicleActivity)));
             });
-            AddText(T("USB detection is not vehicle communication. The original engine includes write functions; use read-only jobs during testing.",
-                "Обнаружение USB не означает связь с автомобилем. Ядро содержит функции записи; при испытаниях используйте только чтение."), 14, "#C2CDDD", 24);
+            AddText(T("Experimental read-only vehicle diagnostics. Test while parked; verify the ECU variant first.", "Экспериментальная диагностика только для чтения. Проверяйте на стоящем автомобиле; сначала подтвердите вариант ECU."), 14, "#C2CDDD", 24);
             AddText("Based on Deep OBD / EdiabasLib by Ulrich Holeschak · GPL-3.0", 12, "#C2CDDD", 16);
         }
 
@@ -119,11 +116,8 @@ namespace BmwDeepObd
             {
                 _usb.Text = "USB enumeration failed.";
             }
-            bool assets = !string.IsNullOrEmpty(AssetUtils.GetAssetEcuFilenames());
-            _ecu.Text = assets
-                ? T("ECU asset present. Original validation still required.", "Пакет найден. Требуется штатная проверка.")
-                : "ECU package missing. Live diagnostics unavailable; local files can be inspected.";
-            _diagnostics.Enabled = assets;
+            _ecu.Text = BavarianEcuSeed.Initialize(this);
+            _diagnostics.Enabled = true;
         }
     }
 }
