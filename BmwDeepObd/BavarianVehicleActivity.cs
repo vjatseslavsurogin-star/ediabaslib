@@ -51,11 +51,14 @@ namespace BmwDeepObd
             ["d_egs.grp"]="9d59ca58c01d052fc5680e6f9030ac52a95924a0b60143b4c331f3795ebf7df4"
         };
         private string _group, _resolved;
-        private bool _faultScreen, _dashboard;
+        private bool _faultScreen, _dashboard, _injectors;
         private Button _chooseSignals;
         private TextView _selectedSummary;
         private string[] _selectedSignals;
-        private string[] AvailableSignals=>_group=="d_egs.grp"?GearboxJobs:EngineJobs;
+        private string[] BaseSignals=>_group=="d_egs.grp"?GearboxJobs:EngineJobs;
+        private string[] AvailableSignals=>BaseSignals.Concat(_group=="d_egs.grp"?GearboxExtra:EngineExtra).Distinct(StringComparer.Ordinal).ToArray();
+        private static bool ExtraFor(string variant,string job)=>
+            (variant=="d50m57e0.prg"&&EngineExtra.Contains(job))||(variant=="gs19a.prg"&&GearboxExtra.Contains(job));
         private Button _scanAll;
         private BavarianFaultPanel _faultPanel;
         private TextView _detected;
@@ -69,8 +72,8 @@ namespace BmwDeepObd
             "STATUS_LADEDRUCK_SOLL","STATUS_RAILDRUCK_IST","STATUS_RAILDRUCK_SOLL","STATUS_UBATT"
         };
         private static readonly string[] GearboxJobs = { "STATUS_GETRIEBETEMPERATUR", "STATUS_ISTGANG" };
-        private static readonly string[] EngineExtra = { "STATUS_LUFTMASSE_IST", "STATUS_LUFTMASSE_SOLL", "STATUS_LAUFUNRUHE_LLR_MENGE", "STATUS_ATMOSPHAERENDRUCK", "STATUS_ANSAUGLUFTTEMPERATUR" };
-        private static readonly string[] GearboxExtra = { "STATUS_WH_POSITION", "STATUS_GETRIEBEPOSITION", "STATUS_TURBINENDREHZAHL", "STATUS_MOTORDREHZAHL", "STATUS_WK" };
+        private static readonly string[] EngineExtra = { "STATUS_LUFTMASSE_IST", "STATUS_LUFTMASSE_SOLL", BavarianLiveFrame.InjectorJob, "STATUS_ATMOSPHAERENDRUCK", "STATUS_ANSAUGLUFTTEMPERATUR", "STATUS_KRAFTSTOFFTEMPERATUR", "STATUS_PWG_POTI_1" };
+        private static readonly string[] GearboxExtra = { "STATUS_WH_POSITION", "STATUS_GETRIEBEPOSITION", "STATUS_TURBINENDREHZAHL", "STATUS_MOTORDREHZAHL", "STATUS_WK", "STATUS_ABTRIEBSDREHZAHL", "STATUS_FAHRPEDALWINKEL", "STATUS_MOTORISTMOMENT", "STATUS_MOTORSOLLMOMENT", "STATUS_BATTERIESPANNUNG" };
         private Button _live, _stopLive, _extra, _csv;
         private BavarianLivePanel _panel;
         private string _csvExport;
@@ -104,13 +107,15 @@ namespace BmwDeepObd
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
             _faultScreen=requested=="faults";
-            _dashboard=requested=="live_engine"||requested=="live_egs";
-            _group=requested=="engine"||requested=="live_engine"?"d_motor.grp":requested=="transmission"||requested=="live_egs"?"d_egs.grp":null;
+            _injectors=requested=="injectors";
+            _dashboard=requested=="live_engine"||requested=="live_egs"||_injectors;
+            _group=requested=="engine"||requested=="live_engine"||_injectors?"d_motor.grp":requested=="transmission"||requested=="live_egs"?"d_egs.grp":null;
             if(_dashboard)
             {
                 string saved=GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private)?.GetString(_group,"");
                 _selectedSignals=AvailableSignals.Where(j=>(saved??"").Split(',').Contains(j)).ToArray();
-                if(_selectedSignals.Length==0)_selectedSignals=AvailableSignals.ToArray();
+                if(_selectedSignals.Length==0)_selectedSignals=BaseSignals.ToArray();
+                if(_injectors)_selectedSignals=new[]{"STATUS_MOTORDREHZAHL",BavarianLiveFrame.InjectorJob};
             }
             SupportActionBar?.Hide();
             var scroll=new ScrollView(this){FillViewport=true};
@@ -135,7 +140,7 @@ namespace BmwDeepObd
                 Refresh();
                 return;
             }
-            AddText(_dashboard?(_group=="d_motor.grp"?"Live Data · DDE":"Live Data · EGS"):AutoMode ? (_group=="d_motor.grp"?T("Engine · DDE","Двигатель · DDE"):T("Transmission · EGS","АКПП · EGS")) : T("Developer mode · USB","Инженерный режим · USB"),24);
+            AddText(_injectors?T("Cylinder smooth running","Коррекции цилиндров"):_dashboard?(_group=="d_motor.grp"?"Live Data · DDE":"Live Data · EGS"):AutoMode ? (_group=="d_motor.grp"?T("Engine · DDE","Двигатель · DDE"):T("Transmission · EGS","АКПП · EGS")) : T("Developer mode · USB","Инженерный режим · USB"),24);
             AddText("READ ONLY / EXPERIMENTAL",14);
             AddText(AutoMode?T("Park safely, ignition on. Connect one K+DCAN cable. The ECU variant is detected automatically.","Автомобиль должен стоять, зажигание включено. Подключите один K+DCAN. Вариант ECU определяется автоматически."):T("Park safely, ignition on. Select a known ECU variant. Connect only one K+DCAN cable.","Автомобиль должен стоять, зажигание включено. Выберите известный вариант ECU. Подключите один K+DCAN."),15);
             _state=AddText("",15);
@@ -161,7 +166,8 @@ namespace BmwDeepObd
             if(_dashboard){_faults.Visibility=ViewStates.Gone;_snapshot.Visibility=ViewStates.Gone;}
             if(_dashboard)
             {
-                _chooseSignals=AddButton(T("Edit sensor selection","Выбрать параметры"),(s,e)=>ChooseSignals());
+                if(!_injectors)_chooseSignals=AddButton(T("Edit sensor selection","Выбрать параметры"),(s,e)=>ChooseSignals());
+                if(_injectors)AddText(T("Experimental quantity corrections. Test at warm idle while parked. No automatic injector diagnosis.","Экспериментальные коррекции количества топлива. Проверка на прогретом холостом ходу. Не является автоматическим диагнозом форсунок."),14);
                 _selectedSummary=AddText("",14);UpdateSelectionLabel();
             }
             _live=AddButton(T("Start live data + CSV","Начать Live Data + CSV"),async(s,e)=>await RunAsync("LIVE"));
@@ -214,7 +220,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.3 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.4 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -275,14 +281,14 @@ namespace BmwDeepObd
         }
         private void UpdateSelectionLabel()
         {
-            _selectedSummary.Text=_selectedSignals.Length+" / "+AvailableSignals.Length+T(" sensors selected"," параметров выбрано");
+            _selectedSummary.Text=_selectedSignals.Length+" / "+AvailableSignals.Length+T(" sensor groups selected"," групп параметров выбрано");
         }
         private void ChooseSignals()
         {
             if(_busy||!_dashboard)return;
             var options=new LinearLayout(this){Orientation=Orientation.Vertical};
             options.SetPadding(Dp(16),Dp(8),Dp(16),Dp(8));
-            var checks=AvailableSignals.Select(j=>new CheckBox(this){Text=BavarianLiveFrame.Label(j,_ru),Checked=_selectedSignals.Contains(j)}).ToArray();
+            var checks=AvailableSignals.Select(j=>new CheckBox(this){Text=BavarianLiveFrame.Label(j,_ru)+(BaseSignals.Contains(j)?"":T(" · experimental"," · тест")),Checked=_selectedSignals.Contains(j)}).ToArray();
             foreach(var check in checks)options.AddView(check);
             var scroll=new ScrollView(this);scroll.AddView(options);
             new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Select sensors","Выбор параметров")).SetView(scroll)
@@ -413,7 +419,7 @@ namespace BmwDeepObd
                 }
                 catch(Exception ex){_output.Text=Describe(ex);_liveRunning=false;return;}
                 _panel.ResetHistory();
-                _panel.ShowSelection(_dashboard?_selectedSignals:AvailableSignals);
+                _panel.ShowSelection(_dashboard?_selectedSignals:BaseSignals);
                 _panel.Visibility=ViewStates.Visible;
                 progress=new Progress<BavarianLiveFrame>(frame=>{
                     if(!IsFinishing&&!IsDestroyed&&_visible&&_liveRunning)_panel.UpdateFrame(frame);
@@ -522,7 +528,7 @@ namespace BmwDeepObd
                 foreach(string job in firstCycle?cycleJobs:jobs)
                 {
                     token.ThrowIfCancellationRequested();
-                    bool allowedExtra=!live&&((variant=="d50m57e0.prg"&&EngineExtra.Contains(job))||(variant=="gs19a.prg"&&GearboxExtra.Contains(job)));
+                    bool allowedExtra=ExtraFor(variant,job);
                     if(job!="IDENT"&&job!="FS_LESEN"&&!EngineJobs.Contains(job)&&!GearboxJobs.Contains(job)&&!allowedExtra)throw new InvalidOperationException("Job blocked");
                     var sw=Stopwatch.StartNew();
                     var jobLines=new List<string>();
@@ -555,16 +561,14 @@ namespace BmwDeepObd
                     string report=string.Join("\n",jobLines);
                     if(live&&job!="IDENT")
                     {
-                        string key="STAT_"+job.Substring(7);
-                        var values=data.Where(r=>r.ContainsKey(key+"_WERT")).ToArray();
-                        if(values.Length!=1)throw new IOException("Expected one numeric value for "+job);
-                        var row=values[0];
-                        string val=Convert.ToString(row[key+"_WERT"].OpData,CultureInfo.InvariantCulture);
-                        string unit=row.ContainsKey(key+"_EINH")?Convert.ToString(row[key+"_EINH"].OpData,CultureInfo.InvariantCulture):"";
-                        if(!double.TryParse(val,NumberStyles.Float,CultureInfo.InvariantCulture,out double numeric)||!double.IsFinite(numeric)||!BavarianLiveFrame.UnitMatches(job,unit))
-                            throw new IOException("Unexpected numeric result or unit for "+job+": "+unit);
-                        var sample=new BavarianSample(job,numeric,unit,DateTimeOffset.UtcNow,sw.ElapsedMilliseconds);
-                        frame.Samples.Add(sample);csv.WriteLine(sample.ToCsv(false,variant));csv.Flush();
+                        var numericRows=data.Select(row=>row.ToDictionary(k=>k.Key,k=>Convert.ToString(k.Value.OpData,CultureInfo.InvariantCulture))).ToList();
+                        var samples=BavarianLiveFrame.ParseSamples(job,variant,numericRows,sw.ElapsedMilliseconds,allowedExtra);
+                        foreach(var sample in samples)
+                        {
+                            frame.Samples.Add(sample);csv.WriteLine(sample.ToCsv(false,variant));
+                        }
+                        csv.Flush();
+                        if(firstCycle&&allowedExtra)Log("EXPERIMENTAL "+job+"\n"+report);
                     }
                     else
                     {
