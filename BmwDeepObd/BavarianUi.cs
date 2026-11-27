@@ -11,7 +11,7 @@ namespace BmwDeepObd
 {
     internal static class BavarianUi
     {
-        internal static readonly Color Bg=Color.ParseColor("#0B1018"),Surface=Color.ParseColor("#151E2B"),Line=Color.ParseColor("#26354A"),White=Color.ParseColor("#F2F6FC"),Muted=Color.ParseColor("#A8B6C8"),Blue=Color.ParseColor("#398CFF");
+        internal static readonly Color Bg=Color.ParseColor("#0B1018"),Surface=Color.ParseColor("#19283B"),Line=Color.ParseColor("#26354A"),White=Color.ParseColor("#F2F6FC"),Muted=Color.ParseColor("#A8B6C8"),Blue=Color.ParseColor("#62ABFF"),Green=Color.ParseColor("#59D9A1");
         internal static int Dp(Context c,int n)=>(int)(n*c.Resources.DisplayMetrics.Density+0.5f);
         internal static GradientDrawable Shape(Context c,Color color,int radius=14)
         {
@@ -28,7 +28,7 @@ namespace BmwDeepObd
             var states=new StateListDrawable();
             states.AddState(new[]{-Android.Resource.Attribute.StateEnabled},Shape(c,Color.ParseColor("#1B2533"),10));
             states.AddState(new[]{Android.Resource.Attribute.StatePressed},Shape(c,Color.ParseColor("#294970"),10));
-            states.AddState(Array.Empty<int>(),Shape(c,primary?Color.ParseColor("#225DB5"):Surface,10));
+            states.AddState(Array.Empty<int>(),Shape(c,primary?Color.ParseColor("#2368C8"):Surface,10));
             b.Background=states;b.SetPadding(Dp(c,14),Dp(c,10),Dp(c,14),Dp(c,10));b.SetMinHeight(Dp(c,46));
             b.SetTextColor(new ColorStateList(new[]{new[]{-Android.Resource.Attribute.StateEnabled},Array.Empty<int>()},new[]{Color.ParseColor("#77869A").ToArgb(),White.ToArgb()}));
         }
@@ -50,7 +50,7 @@ namespace BmwDeepObd
             scroll.AddView(body);root.AddView(scroll,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,0,1));
             var divider=new View(a);divider.SetBackgroundColor(Line);root.AddView(divider,new LinearLayout.LayoutParams(-1,Dp(a,1)));
             var nav=new LinearLayout(a){Orientation=Orientation.Horizontal};nav.SetBackgroundColor(Surface);
-            string[] labels=ru?new[]{"Главная","Ошибки","Данные","Сервис","Настройки"}:new[]{"Home","Diagnostics","Live Data","Service","Settings"};
+            string[] labels=ru?new[]{"Главная","Ошибки","Данные","Инструменты","Настройки"}:new[]{"Home","Diagnostics","Live Data","Tools","Settings"};
             string[] glyphs={"⌂","◇","≋","⊕","⚙"};
             for(int i=0;i<5;i++)
             {

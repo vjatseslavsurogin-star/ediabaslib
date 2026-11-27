@@ -4,6 +4,11 @@ on:
   push:
     branches: [bavarian-diagnostics]
   workflow_dispatch:
+    inputs:
+      universal:
+        description: 'Build Universal instead of Personal ARM64'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,10 +19,8 @@ concurrency:
 
 jobs:
   baseline:
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [universal, arm64]
+    env:
+      BAVARIAN_VARIANT: ${{ inputs.universal && 'universal' || 'arm64' }}
     runs-on: windows-2025
     timeout-minutes: 45
     defaults:
@@ -76,12 +79,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build APK
-        env:
-          BAVARIAN_VARIANT: ${{ matrix.variant }}
         run: |
           $abiArgs = @()
           if ($env:BAVARIAN_VARIANT -eq 'arm64') {
-            $abiArgs = @('-p:RuntimeIdentifiers=android-arm64')
+            $abiArgs = @('-p:BavarianArm64=true')
           }
           dotnet build BmwDeepObd/BmwDeepObd.csproj -c Debug -f net11.0-android37.2 -p:EnableAndroidTargets=true -p:BavarianUsbBaseline=true -p:AndroidPackageFormat=apk -p:AndroidPackageFormats=apk -p:EmbedAssembliesIntoApk=true -p:AndroidKeyStore=false @abiArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -101,20 +102,18 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bavarian-v18-${{ matrix.variant }}-template-apk
+          name: bavarian-v19-${{ env.BAVARIAN_VARIANT }}-template-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7
 
       - name: Collect APK signing utility for private packaging
-        if: matrix.variant == 'universal'
         run: |
           $jar = Get-ChildItem (Join-Path $env:ANDROID_HOME 'build-tools') -Recurse -Filter apksigner.jar | Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $jar) { throw 'Android apksigner.jar not found' }
           New-Item -ItemType Directory -Force private-tools | Out-Null
           Copy-Item $jar.FullName private-tools/apksigner.jar
       - uses: actions/upload-artifact@v4
-        if: matrix.variant == 'universal'
         with:
           name: android-apk-signing-tool
           path: private-tools/apksigner.jar

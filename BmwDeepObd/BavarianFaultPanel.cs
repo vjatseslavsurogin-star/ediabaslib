@@ -29,6 +29,7 @@ namespace BmwDeepObd
         {
             _ru=ru;Orientation=Orientation.Vertical;
             _summary=TextLine(this,T("No scan performed.","Чтение ещё не выполнено."),16);
+            _summary.Background=BavarianUi.Shape(context,BavarianUi.Surface);_summary.SetPadding(Dp(14),Dp(12),Dp(14),Dp(12));
             _all=new CheckBox(context){Text=T("Show all records (including not occurred)","Все записи (включая не возникавшие)")};BavarianUi.Checkbox(_all);
             AddView(_all);
             _cards=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_cards);

@@ -18,7 +18,7 @@ namespace BmwDeepObd
         private LinearLayout _body;
         private TextView _usb,_libraryStatus;
         private Button _connect;
-        private readonly List<Button> _gated=new List<Button>();
+        private readonly List<View> _gated=new List<View>();
         private bool _ru,_ready;
         private string _report="";
         private int _tab;
@@ -36,36 +36,57 @@ namespace BmwDeepObd
         }
         protected override void OnNewIntent(Intent intent){base.OnNewIntent(intent);_tab=intent?.GetIntExtra("bavarian_tab",0)??0;Render();}
         protected override void OnSaveInstanceState(Bundle state){state.PutInt("tab",_tab);base.OnSaveInstanceState(state);}
-        protected override void OnResume(){base.OnResume();RefreshStatus();if(_poll!=null){_handler.RemoveCallbacks(_poll);_handler.PostDelayed(_poll,1000);}}
+        protected override void OnResume(){base.OnResume();Render();RefreshStatus();if(_poll!=null){_handler.RemoveCallbacks(_poll);_handler.PostDelayed(_poll,1000);}}
         protected override void OnPause(){if(_poll!=null)_handler.RemoveCallbacks(_poll);base.OnPause();}
         private void Render()
         {
-            _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;
+            _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab){_tab=i;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"BAVARIAN  /  1.8",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
-            string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
+            var brand=BavarianUi.Text(this,"BAVARIAN  /  1.9  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
+            string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Инструменты","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Tools","Settings"};
             Text(titles[_tab],30,true,8);
-            var connection=Card();_usb=BavarianUi.Text(this,"",14,true);connection.AddView(_usb);
-            _connect=BavarianUi.Action(connection,T("Connect USB","Подключить USB"),(s,e)=>Connect(),true);
             if(_tab==0)
             {
-                var car=Card();car.AddView(BavarianUi.Text(this,"BMW E60",26,true));
-                car.AddView(BavarianUi.Text(this,"M57  ·  K+DCAN",15));
-                car.AddView(BavarianUi.Text(this,T("Selected vehicle profile · not yet identified","Выбранный профиль · автомобиль ещё не определён"),12));
-                _libraryStatus=BavarianUi.Text(this,"",13);car.AddView(_libraryStatus);
+                var connection=Card();_usb=BavarianUi.Text(this,"",14,true);connection.AddView(_usb);
+                _connect=BavarianUi.Action(connection,T("Connect adapter","Подключить адаптер"),(s,e)=>Connect(),true);
+            }
+            else
+            {
+                _usb=Text("",12,true,8);
+                _usb.Clickable=true;_usb.Click+=(s,e)=>{_tab=0;Render();};
+            }
+            if(_tab==0)
+            {
+                var car=Card();
+                var hero=new Android.Graphics.Drawables.GradientDrawable(Android.Graphics.Drawables.GradientDrawable.Orientation.TlBr,new[]{Android.Graphics.Color.ParseColor("#183D72").ToArgb(),Android.Graphics.Color.ParseColor("#13253C").ToArgb()});
+                hero.SetCornerRadius(Dp(18));car.Background=hero;
+                var profile=BavarianUi.Text(this,T("PERSONAL VEHICLE PROFILE","ЛИЧНЫЙ ПРОФИЛЬ"),11,true);profile.SetTextColor(BavarianUi.Blue);car.AddView(profile);
+                car.AddView(BavarianUi.Text(this,"BMW 530d",30,true));
+                car.AddView(BavarianUi.Text(this,"E60  ·  M57  ·  160 kW  ·  2005",14,true));
+                var prefs=GetSharedPreferences("bavarian_overview",FileCreationMode.Private);
+                var vin=prefs.GetString("vin","");
+                car.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(vin)?T("Profile selected manually · VIN not read","Профиль выбран вручную · VIN не считан"):T("Last read VIN: ","Последний считанный VIN: ")+vin,12));
+                _libraryStatus=BavarianUi.Text(this,"",12);car.AddView(_libraryStatus);
+                Section(T("Last recorded values","Последние записанные данные"));
+                var faults=prefs.GetString("DDE_summary","—");
+                MetricPair(T("DDE fault records","Записи DDE"),faults,T("Coolant","ОЖ"),LastValue("coolant"));
+                MetricPair(T("DDE voltage","Напряжение"),LastValue("voltage"),T("Boost · absolute","Наддув · абс."),LastValue("boost"));
+                Text(T("Saved readings, not live. Times shown when available.","Сохранённые данные, не текущие. Время указано при наличии."),11,false,8);
                 Section(T("Quick actions","Быстрые действия"));
-                Route(T("Vehicle scan","Диагностика авто"),T("Read supported ECU groups","Опрос поддерживаемых групп ECU"),()=>Open("vehicle_scan"));
-                Route(T("Live dashboard","Приборная панель"),T("Engine sensor readings","Показания двигателя"),()=>Open("live_engine"));
+                Route(T("Vehicle scan","Диагностика авто"),T("10 ECU groups","10 групп ECU"),()=>Open("vehicle_scan"));
+                Route(T("Live dashboard","Приборная панель"),T("Engine · DDE","Двигатель · DDE"),()=>Open("live_engine"));
             }
             else if(_tab==1)
             {
-                Route(T("Vehicle scan","Диагностика авто"),T("10 ECU groups · experimental","10 групп ECU · тест"),()=>Open("vehicle_scan"));
+                Section(T("Last scan · saved","Последнее чтение · сохранено"));
+                ModuleSummary("DDE",T("Engine","Двигатель"));ModuleSummary("EGS",T("Transmission","АКПП"));
+                Route(T("Vehicle scan","Сканировать авто"),T("10 ECU groups · experimental","10 групп ECU · тест"),()=>Open("vehicle_scan"));
                 Route(T("Fault codes","Ошибки"),T("Engine & transmission · DDE / EGS","Двигатель и АКПП · DDE / EGS"),()=>Open("faults"));
-                Text(T("Details and reports are available within each scan.","Подробности и отчёты доступны в результатах чтения."),13,false,12);
+                Route(T("History","История"),T("Saved reports","Сохранённые отчёты"),()=>Open("history"),false);
             }
             else if(_tab==2)
             {
-                Route(T("Engine","Двигатель"),T("DDE · customizable live dashboard","DDE · настраиваемая панель"),()=>Open("live_engine"));
+                Route(T("Engine dashboard","Двигатель"),T("DDE · live gauges and graphs","DDE · приборы и графики"),()=>Open("live_engine"));
                 Route(T("Transmission","АКПП"),T("EGS · temperatures and states","EGS · температуры и состояния"),()=>Open("live_egs"));
                 Route(T("Cylinder corrections","Коррекции цилиндров"),T("Six-cylinder view · experimental","Шесть цилиндров · тест"),()=>Open("injectors"));
                 Route("DEMO",T("Simulated readings · offline","Имитация данных · без авто"),()=>StartActivity(new Intent(this,typeof(BavarianDemoActivity))),false);
@@ -101,9 +122,42 @@ namespace BmwDeepObd
         private void Section(string text){var t=Text(text,13,true,20);t.SetTextColor(BavarianUi.Blue);}
         private void Route(string title,string subtitle,Action action,bool gated=true)
         {
-            var b=BavarianUi.Action(_body,title+"  ›\n"+subtitle,(s,e)=>action());
-            b.Gravity=GravityFlags.CenterVertical|GravityFlags.Start;b.SetMinHeight(Dp(68));
-            if(gated){_gated.Add(b);b.Enabled=_ready;}
+            var row=new LinearLayout(this){Orientation=Orientation.Horizontal};row.SetGravity(GravityFlags.CenterVertical);
+            row.Background=BavarianUi.Shape(this,BavarianUi.Surface);row.SetPadding(Dp(14),Dp(12),Dp(14),Dp(12));row.SetMinimumHeight(Dp(65));
+            var bar=new View(this);bar.Background=BavarianUi.Shape(this,BavarianUi.Blue,2);row.AddView(bar,new LinearLayout.LayoutParams(Dp(3),Dp(30)){RightMargin=Dp(12)});
+            var labels=new LinearLayout(this){Orientation=Orientation.Vertical};
+            labels.AddView(BavarianUi.Text(this,title,17,true));labels.AddView(BavarianUi.Text(this,subtitle,12));row.AddView(labels,new LinearLayout.LayoutParams(0,-2,1));
+            var arrow=BavarianUi.Text(this,"›",24,true);arrow.SetTextColor(BavarianUi.Blue);row.AddView(arrow);
+            row.Clickable=true;row.Focusable=true;row.ContentDescription=title+". "+subtitle;row.Click+=(s,e)=>{if(!gated||_ready)action();};
+            _body.AddView(row,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
+            if(gated){_gated.Add(row);row.Enabled=_ready;row.Alpha=_ready?1f:0.55f;}
+        }
+        private string LastValue(string key)
+        {
+            var p=GetSharedPreferences("bavarian_overview",FileCreationMode.Private);
+            string value=p.GetString(key,"—"),time=p.GetString(key+"_time","");
+            return string.IsNullOrEmpty(time)?value:value+"\n"+time;
+        }
+        private void MetricPair(string label1,string value1,string label2,string value2)
+        {
+            var row=new LinearLayout(this){Orientation=Orientation.Horizontal};
+            _body.AddView(row,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
+            void Metric(string label,string value)
+            {
+                var c=new LinearLayout(this){Orientation=Orientation.Vertical};c.Background=BavarianUi.Shape(this,BavarianUi.Surface);
+                c.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));c.AddView(BavarianUi.Text(this,label,12));
+                var t=BavarianUi.Text(this,value,16,true);t.SetTextColor(BavarianUi.White);c.AddView(t);
+                row.AddView(c,new LinearLayout.LayoutParams(0,-2,1){RightMargin=Dp(4)});
+            }
+            Metric(label1,value1);Metric(label2,value2);
+        }
+        private void ModuleSummary(string module,string name)
+        {
+            var p=GetSharedPreferences("bavarian_overview",FileCreationMode.Private);
+            var card=Card();card.AddView(BavarianUi.Text(this,module+" · "+name,18,true));
+            var value=p.GetString(module+"_summary","");
+            card.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(value)?T("Not scanned","Не проверен"):value,15));
+            card.AddView(BavarianUi.Text(this,p.GetString(module+"_time",""),12));
         }
         private void Open(string mode)
         {
@@ -115,7 +169,7 @@ namespace BmwDeepObd
             catch(Exception){_report=T("ECU library check failed","Ошибка проверки библиотеки ECU");_ready=false;}
             if(!IsFinishing&&!IsDestroyed)UpdateLibrary();
         }
-        private void UpdateLibrary(){if(_libraryStatus!=null)_libraryStatus.Text=string.IsNullOrEmpty(_report)?T("Checking ECU library…","Проверка библиотеки ECU…"):_report;foreach(var b in _gated)b.Enabled=_ready;}
+        private void UpdateLibrary(){if(_libraryStatus!=null)_libraryStatus.Text=string.IsNullOrEmpty(_report)?T("Checking ECU library…","Проверка базы…"):_tab==0?(_ready?T("ECU library ready · 675 files","База ECU готова · 675 файлов"):T("ECU library not verified","База ECU не проверена")):_report;foreach(var b in _gated){b.Enabled=_ready;b.Alpha=_ready?1f:0.55f;}}
         private UsbManager Manager=>GetSystemService(UsbService) as UsbManager;
         private UsbDevice Device(UsbManager manager)
         {
@@ -127,11 +181,11 @@ namespace BmwDeepObd
             try
             {
                 var manager=Manager;var d=Device(manager);bool ready=d!=null&&manager.HasPermission(d);
-                _usb.Text=ready?T("● USB ready · ECU not checked","● USB готов · ECU не проверен"):d==null?T("○ Connect one K+DCAN adapter","○ Подключите один K+DCAN"):T("○ USB permission required","○ Требуется разрешение USB");
-                _usb.SetTextColor(ready?BavarianUi.Blue:BavarianUi.Muted);
-                _connect.Visibility=ready?ViewStates.Gone:ViewStates.Visible;_connect.Enabled=d!=null;
+                _usb.Text=ready?T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен"):d==null?T("○ Not connected","○ Нет подключения"):T("○ Permission required · Home","○ Нужно разрешение · Главная");
+                _usb.SetTextColor(ready?BavarianUi.Green:BavarianUi.Muted);
+                if(_connect!=null){_connect.Visibility=ready||d==null?ViewStates.Gone:ViewStates.Visible;_connect.Enabled=d!=null;}
             }
-            catch(Exception){_usb.Text=T("USB check failed","Ошибка USB");_connect.Enabled=false;}
+            catch(Exception){_usb.Text=T("USB check failed","Ошибка USB");if(_connect!=null)_connect.Enabled=false;}
         }
         private void Connect()
         {

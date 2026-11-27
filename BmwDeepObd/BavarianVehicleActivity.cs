@@ -243,7 +243,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.8 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.9 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -279,11 +279,12 @@ namespace BmwDeepObd
                 if(device==null || device.DeviceName!=_deviceName || !permitted){ResetIdentity();}
                 if(_busy&&(!permitted||device?.DeviceName!=_activeDevice))_cancel?.Cancel();
                 if(_faultScreen&&(!permitted||(_scanDevice!=null&&device?.DeviceName!=_scanDevice)))_scanIdentities.Clear();
-                _state.Text=_busy?"Diagnostic request running...":device==null?"Connect exactly one supported USB adapter.":!permitted?"USB detected. Permission required.":_identified==null?"USB permission granted. ECU not identified.":(AutoMode?"ECU identified. Read requests enabled.":"ECU responded to IDENT. Confirm variant before interpreting results.");
+                _state.Text=_busy?T("● Reading…","● Чтение…"):!permitted?T("○ Not connected · Home","○ Нет подключения · Главная"):_identified==null?T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен"):T("● ECU identified","● ECU определён");
             }
             catch(Exception){_state.Text="USB check failed.";ResetIdentity();_cancel?.Cancel();}
             _permission.Enabled=!_busy;
-            _permission.Visibility=permitted?ViewStates.Gone:ViewStates.Visible;
+            _permission.Visibility=ViewStates.Gone;
+            _state.SetTextColor(permitted?BavarianUi.Green:BavarianUi.Muted);
             if(_faultScreen)
             {
                 _scanAll.Enabled=!_busy&&permitted;
@@ -295,7 +296,7 @@ namespace BmwDeepObd
                 _clearDde.Enabled=!_busy&&permitted&&_scanIdentities.ContainsKey("d_motor.grp");
                 _clearEgs.Enabled=!_busy&&permitted&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
                 _historyButton.Enabled=!_busy;
-                if(!_busy)_state.Text=permitted?T("USB ready. Start scan.","USB готов. Начните чтение."):T("Connect one supported USB adapter and grant permission.","Подключите один USB-адаптер и выдайте разрешение.");
+                if(!_busy)_state.Text=permitted?T("● Adapter connected · ready to scan","● Адаптер подключён · можно читать"):T("○ Not connected · Home","○ Нет подключения · Главная");
                 return;
             }
             _variant.Enabled=!_busy;
@@ -426,6 +427,7 @@ namespace BmwDeepObd
                         token.ThrowIfCancellationRequested();
                         if(IsFinishing||IsDestroyed||!_visible)break;
                         _faultPanel.AddResult(module,result.Variant,result.FaultRows,result.ExtraDetails,result.Vin,result.ExtraNote);
+                        SaveOverview(module,result.FaultRows,result.Vin);
                         if((result.Variant=="d50m57e0.prg"||result.Variant=="gs19a.prg")&&!string.IsNullOrEmpty(result.Identity)&&result.FaultRows!=null)_scanIdentities[group]=(result.Variant,result.Identity);
                     }
                     catch(Exception ex)
@@ -433,6 +435,7 @@ namespace BmwDeepObd
                         Log("FAULT_SCAN FAIL "+group+" "+Describe(ex));
                         if(IsFinishing||IsDestroyed||!_visible)break;
                         _faultPanel.AddFailure(module,moduleCancel.IsCancellationRequested?T("Cancelled / timed out","Отменено / тайм-аут"):Describe(ex));
+                        SaveOverview(module,null,null);
                     }
                 }
                 if(!IsFinishing&&!IsDestroyed&&_visible)
@@ -447,6 +450,45 @@ namespace BmwDeepObd
                 _cancel.Dispose();_cancel=null;_busy=false;_activeDevice=null;
                 if(!IsFinishing&&!IsDestroyed)Refresh();
             }
+        }
+        private long _lastOverviewTick;
+        private void SaveLiveOverview(BavarianLiveFrame frame)
+        {
+            if(frame.Demo||frame.Variant!="d50m57e0.prg")return;
+            long now=SystemClock.ElapsedRealtime();if(now-_lastOverviewTick<2000)return;_lastOverviewTick=now;
+            try
+            {
+                var edit=GetSharedPreferences("bavarian_overview",FileCreationMode.Private).Edit();
+                foreach(var s in frame.Samples)
+                {
+                    string key=s.Job=="STATUS_KUEHLMITTELTEMPERATUR"?"coolant":s.Job=="STATUS_UBATT"?"voltage":s.Job=="STATUS_LADEDRUCK_IST"?"boost":null;
+                    if(key==null||!BavarianLiveFrame.UnitMatches(s.Job,s.Unit))continue;
+                    string unit=s.Unit=="deg C"?"°C":s.Unit=="hPa"?"mbar":s.Unit;
+                    edit.PutString(key,s.Value.ToString(key=="voltage"?"0.00":"0.0",CultureInfo.InvariantCulture)+" "+unit);
+                    edit.PutString(key+"_time",s.Time.ToLocalTime().ToString("dd.MM HH:mm",CultureInfo.InvariantCulture));
+                }
+                edit.Apply();
+            }
+            catch(Exception){ }
+        }
+        private void SaveOverview(string module,List<Dictionary<string,string>> rows,string vin)
+        {
+            try
+            {
+                var edit=GetSharedPreferences("bavarian_overview",FileCreationMode.Private).Edit();
+                if(!string.IsNullOrEmpty(vin))edit.PutString("vin",vin);
+                if(module=="DDE"||module=="EGS")
+                {
+                    var records=BavarianFaultPanel.ParseRecords(rows);
+                    string State(Dictionary<string,string> r)=>r.TryGetValue("F_VERSION",out string ver)&&ver=="2"&&r.TryGetValue("F_VORHANDEN_NR",out string state)?state:"";
+                    string summary=rows==null?"Read failed / не прочитан":records.Count==0?"No recognized records / нет распознанных записей":
+                        "Active "+records.Count(r=>State(r)=="35")+" · Stored "+records.Count(r=>State(r)=="33")+" · Other "+records.Count(r=>State(r)!="35"&&State(r)!="33");
+                    edit.PutString(module+"_summary",summary);
+                    edit.PutString(module+"_time",DateTime.Now.ToString("dd.MM HH:mm",CultureInfo.InvariantCulture));
+                }
+                edit.Apply();
+            }
+            catch(Exception){ }
         }
         private bool SaveHistory(string title,string report,bool incomplete)
         {
@@ -560,11 +602,12 @@ namespace BmwDeepObd
                 if(!IsFinishing&&!IsDestroyed&&_visible)
                 {
                     _faultPanel.AddResult(BavarianScanCatalog.Module(group),after.Variant,after.FaultRows);
+                    SaveOverview(BavarianScanCatalog.Module(group),after.FaultRows,null);
                     SaveHistory("AFTER CLEAR "+BavarianScanCatalog.Module(group),_faultPanel.ExportText(),false);
                     _output.Text=T("Clear acknowledged; memory re-read. Remaining records shown below.","Удаление подтверждено; память перечитана. Оставшиеся записи ниже.");
                 }
             }
-            catch(Exception ex){Log("CLEAR FAIL "+Describe(ex));if(!IsFinishing&&!IsDestroyed)_output.Text=T("Clear not verified. Re-scan before retrying.","Удаление не подтверждено. Перечитайте память перед повтором.")+"\n"+Describe(ex);}
+            catch(Exception ex){SaveOverview(BavarianScanCatalog.Module(group),null,null);Log("CLEAR FAIL "+Describe(ex));if(!IsFinishing&&!IsDestroyed)_output.Text=T("Clear not verified. Re-scan before retrying.","Удаление не подтверждено. Перечитайте память перед повтором.")+"\n"+Describe(ex);}
             finally{_scanIdentities.Remove(group);_cancel.Dispose();_cancel=null;_busy=false;_activeDevice=null;if(!IsFinishing&&!IsDestroyed)Refresh();}
         }
         private async Task RunAsync(string operation)
@@ -598,7 +641,7 @@ namespace BmwDeepObd
                 _panel.ShowSelection(_dashboard?_selectedSignals:BaseSignals);
                 _panel.Visibility=ViewStates.Visible;
                 progress=new Progress<BavarianLiveFrame>(frame=>{
-                    if(!IsFinishing&&!IsDestroyed&&_visible&&_liveRunning)_panel.UpdateFrame(frame);
+                    if(!IsFinishing&&!IsDestroyed&&_visible&&_liveRunning){_panel.UpdateFrame(frame);SaveLiveOverview(frame);}
                 });
             }
             else if(!_dashboard)_panel.Visibility=ViewStates.Gone;

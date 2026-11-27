@@ -260,7 +260,7 @@ namespace BmwDeepObd
         {
             _ru=BavarianLanguage.IsRussian(context);
             Orientation=Orientation.Vertical;
-            SetPadding(Dp(6),Dp(10),Dp(6),Dp(10));SetBackgroundColor(Color.Rgb(12,20,34));
+            SetPadding(Dp(0),Dp(10),Dp(0),Dp(10));SetBackgroundColor(BavarianUi.Bg);
             _title=new TextView(context){TextSize=14};_title.SetTextColor(Color.Rgb(103,179,255));AddView(_title);
             _tiles=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_tiles);
             if(!gearbox)
@@ -291,10 +291,11 @@ namespace BmwDeepObd
                     _tiles.AddView(row,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)});
                 }
                 var card=new LinearLayout(Context){Orientation=Orientation.Vertical};card.SetPadding(Dp(10),Dp(9),Dp(10),Dp(9));
-                var bg=new Android.Graphics.Drawables.GradientDrawable();bg.SetColor(Color.Rgb(25,40,59));bg.SetCornerRadius(Dp(10));card.Background=bg;
+                card.Background=BavarianUi.Shape(Context,BavarianUi.Surface,14);
+                var accent=new View(Context);accent.Background=BavarianUi.Shape(Context,BavarianUi.Blue,2);card.AddView(accent,new LinearLayout.LayoutParams(Dp(24),Dp(3)){BottomMargin=Dp(7)});
                 var lp=new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WrapContent,1);lp.SetMargins(Dp(4),0,Dp(4),0);row.AddView(card,lp);
                 var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12};label.SetMinLines(2);label.SetTextColor(Color.Rgb(178,195,215));card.AddView(label);
-                var readout=new TextView(Context){Text="—",TextSize=25};readout.SetTextColor(Color.White);card.AddView(readout);
+                var readout=BavarianUi.Text(Context,"—",24,true);readout.SetTextColor(BavarianUi.White);card.AddView(readout);
                 _readouts[jobs[i]]=readout;
             }
             if(row!=null&&jobs.Length%columns!=0)
