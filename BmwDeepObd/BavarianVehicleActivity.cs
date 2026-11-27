@@ -95,7 +95,8 @@ namespace BmwDeepObd
         protected override void OnStop(){_cancel?.Cancel();_identified=null;_deviceName=null;base.OnStop();}
         private TextView AddText(string text,int size)
         {
-            var v=new TextView(this){Text=text,TextSize=size,TextIsSelectable=true};
+            var v=new TextView(this){Text=text,TextSize=size};
+            v.SetTextIsSelectable(true);
             var lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(12)};
             _body.AddView(v,lp);return v;
         }
@@ -152,7 +153,9 @@ namespace BmwDeepObd
             if(_busy)return;
             string name=Selected;
             if(name==null || !Approved.ContainsKey(name))return;
-            var manager=Manager;var device=GetDevice(manager);
+            UsbManager manager; UsbDevice device;
+            try { manager=Manager; device=GetDevice(manager); }
+            catch(Exception ex) { _output.Text=BavarianLanguage.Error("USB check failed",ex); return; }
             if(device==null || !manager.HasPermission(device)){Refresh();return;}
             if(operation!="IDENT" && (_identified!=name || _deviceName!=device.DeviceName))return;
             _busy=true;_cancel=new CancellationTokenSource();
