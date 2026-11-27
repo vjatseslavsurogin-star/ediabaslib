@@ -3,7 +3,6 @@ using System;
 using System.IO;
 using System.Diagnostics;
 using System.Text;
-using Android.Graphics;
 using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
@@ -198,7 +197,7 @@ namespace BmwDeepObd
                 {
                     var intent=new Intent(this,typeof(BavarianUsbPermissionReceiver));
                     intent.SetAction(ActivityCommon.AppNameSpace+".BAVARIAN_USB");
-                    var flags=Build.VERSION.SdkInt>=BuildVersionCodes.S?PendingIntentFlags.Mutable:0;
+                    var flags=OperatingSystem.IsAndroidVersionAtLeast(31)?PendingIntentFlags.Mutable:0;
                     var pending=PendingIntent.GetBroadcast(this,510,intent,flags);
                     manager.RequestPermission(device,pending);
                     _output.Text="Grant USB permission, then press Check USB again.";
