@@ -92,6 +92,7 @@ namespace BmwDeepObd
                 Route(T("Transmission","АКПП"),T("EGS · temperatures and converter","EGS · температура и гидротрансформатор"),()=>Open("live_egs"));
                 Route(T("Transmission adaptations","Адаптации АКПП"),T("GS19A · read only · experimental","GS19A · только чтение · тест"),()=>Open("adaptations"));
                 Route(T("Cylinder corrections","Коррекции цилиндров"),T("Six-cylinder view · experimental","Шесть цилиндров · тест"),()=>Open("injectors"));
+                Route(T("Saved logs","Сохранённые логи"),T("Offline charts · compare sessions","Графики офлайн · сравнение сессий"),()=>StartActivity(new Intent(this,typeof(BavarianOfflineActivity))),false);
                 Route("DEMO",T("Simulated readings · offline","Имитация данных · без авто"),()=>StartActivity(new Intent(this,typeof(BavarianDemoActivity))),false);
             }
             else if(_tab==3)
@@ -106,6 +107,7 @@ namespace BmwDeepObd
                 Route(T("ECU information","Информация о блоках"),T("DDE · EGS · KOMBI · CAS","DDE · EGS · KOMBI · CAS"),()=>Open("ecu_info"));
                 Route(T("Fault memory service","Обслуживание памяти ошибок"),T("Read MIL and clear DDE / EGS after a fresh scan","MIL и удаление ошибок после нового чтения"),()=>Open("service"));
                 Route(T("Scan history","История диагностики"),T("Saved local reports","Сохранённые локальные отчёты"),()=>Open("history"),false);
+                Route(T("PDF reports","Отчёты PDF"),T("Export saved diagnostic reports","Экспорт сохранённых отчётов"),()=>{var i=new Intent(this,typeof(BavarianOfflineActivity));i.PutExtra("reports",true);StartActivity(i);},false);
                 Text(T("Fault clearing requires confirmation and engine off.","Удаление ошибок требует подтверждения и остановленного двигателя."),13,false,12);
             }
             else
