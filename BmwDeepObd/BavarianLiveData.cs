@@ -156,30 +156,67 @@ namespace BmwDeepObd
     internal sealed class BavarianLivePanel : LinearLayout
     {
         private readonly bool _ru;
-        private readonly TextView _title,_values;
+        private readonly TextView _title;
+        private readonly LinearLayout _tiles;
         private readonly BavarianTrend _boost,_rail;
+        private readonly Dictionary<string,TextView> _readouts=new Dictionary<string,TextView>();
+        private string[] _selection=Array.Empty<string>();
+        private int Dp(int n)=>(int)(n*Resources.DisplayMetrics.Density+0.5f);
         public BavarianLivePanel(Context context,bool gearbox):base(context)
         {
             _ru=BavarianLanguage.IsRussian(context);
             Orientation=Orientation.Vertical;
-            int d=(int)(8*Resources.DisplayMetrics.Density);
-            SetPadding(d,d,d,d);SetBackgroundColor(Color.Rgb(12,20,34));
+            SetPadding(Dp(6),Dp(10),Dp(6),Dp(10));SetBackgroundColor(Color.Rgb(12,20,34));
             _title=new TextView(context){TextSize=14};_title.SetTextColor(Color.Rgb(103,179,255));AddView(_title);
-            _values=new TextView(context){TextSize=18};_values.SetTextColor(Color.White);AddView(_values);
+            _tiles=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_tiles);
             if(!gearbox)
             {
                 _boost=new BavarianTrend(context,"Boost / mbar · actual blue · target amber");
                 _rail=new BavarianTrend(context,"Rail / bar · actual blue · target amber");
-                int height=(int)(150*Resources.DisplayMetrics.Density);
-                AddView(_boost,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,height));
-                AddView(_rail,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,height));
+                AddView(_boost,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,Dp(150)){TopMargin=Dp(8)});
+                AddView(_rail,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,Dp(150)){TopMargin=Dp(8)});
+                _boost.Visibility=_rail.Visibility=ViewStates.Gone;
             }
         }
-        public void ResetHistory(){_values.Text="";_title.Text="Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
+        public void ShowSelection(string[] jobs)
+        {
+            _selection=jobs.ToArray();_tiles.RemoveAllViews();_readouts.Clear();
+            int columns=Resources.Configuration.Orientation==Android.Content.Res.Orientation.Landscape?3:2;
+            LinearLayout row=null;
+            for(int i=0;i<jobs.Length;i++)
+            {
+                if(i%columns==0)
+                {
+                    row=new LinearLayout(Context){Orientation=Orientation.Horizontal};
+                    _tiles.AddView(row,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)});
+                }
+                var card=new LinearLayout(Context){Orientation=Orientation.Vertical};card.SetPadding(Dp(10),Dp(9),Dp(10),Dp(9));
+                var bg=new Android.Graphics.Drawables.GradientDrawable();bg.SetColor(Color.Rgb(25,40,59));bg.SetCornerRadius(Dp(10));card.Background=bg;
+                var lp=new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WrapContent,1);lp.SetMargins(Dp(4),0,Dp(4),0);row.AddView(card,lp);
+                var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12,MinLines=2};label.SetTextColor(Color.Rgb(178,195,215));card.AddView(label);
+                var readout=new TextView(Context){Text="—",TextSize=25};readout.SetTextColor(Color.White);card.AddView(readout);
+                _readouts[jobs[i]]=readout;
+            }
+            if(row!=null&&jobs.Length%columns!=0)
+                for(int i=jobs.Length%columns;i<columns;i++)row.AddView(new View(Context),new LinearLayout.LayoutParams(0,1,1));
+            _boost?.ClearHistory();_rail?.ClearHistory();
+            if(_boost!=null)_boost.Visibility=jobs.Contains("STATUS_LADEDRUCK_IST")&&jobs.Contains("STATUS_LADEDRUCK_SOLL")?ViewStates.Visible:ViewStates.Gone;
+            if(_rail!=null)_rail.Visibility=jobs.Contains("STATUS_RAILDRUCK_IST")&&jobs.Contains("STATUS_RAILDRUCK_SOLL")?ViewStates.Visible:ViewStates.Gone;
+            _title.Text=_ru?"Ожидание данных":"Waiting for readings";
+        }
+        public void ResetHistory(){foreach(var value in _readouts.Values)value.Text="—";_title.Text="Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
+        public void MarkStopped(){_title.Text=(_ru?"Остановлено · последние показания":"Stopped · last readings");}
         public void UpdateFrame(BavarianLiveFrame frame)
         {
+            if(_selection.Length==0)ShowSelection(frame.Samples.Select(s=>s.Job).ToArray());
             _title.Text=(frame.Demo?"DEMO · simulated":"ECU · "+frame.Variant)+" · "+frame.ElapsedSeconds.ToString("0.0",CultureInfo.InvariantCulture)+" s";
-            _values.Text=string.Join("\n",frame.Samples.Select(s=>BavarianLiveFrame.Display(s.Job,s.Value,s.Unit,_ru)));
+            foreach(var s in frame.Samples)
+            {
+                if(!_readouts.TryGetValue(s.Job,out var value))continue;
+                string unit=s.Unit=="deg C"||s.Unit=="Grad C"?"°C":s.Unit=="hPa"?"mbar":s.Unit;
+                string fmt=s.Job=="STATUS_MOTORDREHZAHL"||s.Job=="STATUS_ISTGANG"?"0":s.Job=="STATUS_UBATT"?"0.00":"0.0";
+                value.Text=s.Value.ToString(fmt,CultureInfo.InvariantCulture)+" "+unit;
+            }
             _boost?.Append(frame.Value("STATUS_LADEDRUCK_IST"),frame.Value("STATUS_LADEDRUCK_SOLL"));
             _rail?.Append(frame.Value("STATUS_RAILDRUCK_IST"),frame.Value("STATUS_RAILDRUCK_SOLL"));
         }
@@ -244,7 +281,7 @@ namespace BmwDeepObd
             }
             catch(Exception ex){StopDemo();_status.Text=ex.GetType().Name;}
         }
-        private void StopDemo(){_running=false;if(_tick!=null)_handler.RemoveCallbacks(_tick);_csv?.Dispose();_csv=null;if(_status!=null)_status.Text="DEMO stopped";}
+        private void StopDemo(){_running=false;if(_tick!=null)_handler.RemoveCallbacks(_tick);_csv?.Dispose();_csv=null;_panel?.MarkStopped();if(_status!=null)_status.Text="DEMO stopped";}
         protected override void OnStop(){StopDemo();base.OnStop();}
         protected override void OnActivityResult(int requestCode,Result resultCode,Intent data)
         {

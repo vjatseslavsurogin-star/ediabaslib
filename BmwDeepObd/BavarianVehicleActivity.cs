@@ -51,7 +51,11 @@ namespace BmwDeepObd
             ["d_egs.grp"]="9d59ca58c01d052fc5680e6f9030ac52a95924a0b60143b4c331f3795ebf7df4"
         };
         private string _group, _resolved;
-        private bool _faultScreen;
+        private bool _faultScreen, _dashboard;
+        private Button _chooseSignals;
+        private TextView _selectedSummary;
+        private string[] _selectedSignals;
+        private string[] AvailableSignals=>_group=="d_egs.grp"?GearboxJobs:EngineJobs;
         private Button _scanAll;
         private BavarianFaultPanel _faultPanel;
         private TextView _detected;
@@ -100,7 +104,14 @@ namespace BmwDeepObd
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
             _faultScreen=requested=="faults";
-            _group=requested=="engine"?"d_motor.grp":requested=="transmission"?"d_egs.grp":null;
+            _dashboard=requested=="live_engine"||requested=="live_egs";
+            _group=requested=="engine"||requested=="live_engine"?"d_motor.grp":requested=="transmission"||requested=="live_egs"?"d_egs.grp":null;
+            if(_dashboard)
+            {
+                string saved=GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private)?.GetString(_group,"");
+                _selectedSignals=AvailableSignals.Where(j=>(saved??"").Split(',').Contains(j)).ToArray();
+                if(_selectedSignals.Length==0)_selectedSignals=AvailableSignals.ToArray();
+            }
             SupportActionBar?.Hide();
             var scroll=new ScrollView(this){FillViewport=true};
             scroll.SetFitsSystemWindows(true);
@@ -124,7 +135,7 @@ namespace BmwDeepObd
                 Refresh();
                 return;
             }
-            AddText(AutoMode ? (_group=="d_motor.grp"?T("Engine · DDE","Двигатель · DDE"):T("Transmission · EGS","АКПП · EGS")) : T("Developer mode · USB","Инженерный режим · USB"),24);
+            AddText(_dashboard?(_group=="d_motor.grp"?"Live Data · DDE":"Live Data · EGS"):AutoMode ? (_group=="d_motor.grp"?T("Engine · DDE","Двигатель · DDE"):T("Transmission · EGS","АКПП · EGS")) : T("Developer mode · USB","Инженерный режим · USB"),24);
             AddText("READ ONLY / EXPERIMENTAL",14);
             AddText(AutoMode?T("Park safely, ignition on. Connect one K+DCAN cable. The ECU variant is detected automatically.","Автомобиль должен стоять, зажигание включено. Подключите один K+DCAN. Вариант ECU определяется автоматически."):T("Park safely, ignition on. Select a known ECU variant. Connect only one K+DCAN cable.","Автомобиль должен стоять, зажигание включено. Выберите известный вариант ECU. Подключите один K+DCAN."),15);
             _state=AddText("",15);
@@ -147,12 +158,20 @@ namespace BmwDeepObd
             _confirm.CheckedChange+=(s,e)=>Refresh();
             _faults=AddButton(T("Read fault memory","Чтение ошибок"),async(s,e)=>await RunAsync("FS_LESEN"));
             _snapshot=AddButton(T("Read parameters once","Прочитать параметры"),async(s,e)=>await RunAsync("SNAPSHOT"));
+            if(_dashboard){_faults.Visibility=ViewStates.Gone;_snapshot.Visibility=ViewStates.Gone;}
+            if(_dashboard)
+            {
+                _chooseSignals=AddButton(T("Edit sensor selection","Выбрать параметры"),(s,e)=>ChooseSignals());
+                _selectedSummary=AddText("",14);UpdateSelectionLabel();
+            }
             _live=AddButton(T("Start live data + CSV","Начать Live Data + CSV"),async(s,e)=>await RunAsync("LIVE"));
             _stopLive=AddButton(T("Stop live data","Остановить Live Data"),(s,e)=>_cancel?.Cancel());
             _extra=AddButton(T("Extra signals · experimental","Дополнительные сигналы · эксперимент"),async(s,e)=>await RunAsync("EXTRA"));
+            if(_dashboard)_extra.Visibility=ViewStates.Gone;
             _csv=AddButton(T("Export latest CSV","Сохранить последний CSV"),(s,e)=>ExportCsv());
             _panel=new BavarianLivePanel(this,_group=="d_egs.grp");
-            _panel.Visibility=ViewStates.Gone;
+            _panel.Visibility=_dashboard?ViewStates.Visible:ViewStates.Gone;
+            if(_dashboard)_panel.ShowSelection(_selectedSignals);
             _body.AddView(_panel);
             AddButton(T("Cancel / disconnect","Отмена / отключение"),(s,e)=>{ResetIdentity();_cancel?.Cancel();Refresh();});
             _stats=AddText("",13);
@@ -195,7 +214,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.2.1 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.3 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
@@ -250,8 +269,30 @@ namespace BmwDeepObd
             _live.Enabled=ready&&AutoMode&&verifiedVariant;
             _extra.Enabled=ready&&AutoMode&&verifiedVariant;
             _stopLive.Enabled=_busy&&_liveRunning;
+            if(_chooseSignals!=null)_chooseSignals.Enabled=!_busy;
             _csv.Enabled=!_busy&&AutoMode&&LatestCsv()!=null;
             _stats.Text="Jobs: "+_ok+" OK / "+_failed+" failed (this screen)";
+        }
+        private void UpdateSelectionLabel()
+        {
+            _selectedSummary.Text=_selectedSignals.Length+" / "+AvailableSignals.Length+T(" sensors selected"," параметров выбрано");
+        }
+        private void ChooseSignals()
+        {
+            if(_busy||!_dashboard)return;
+            var options=new LinearLayout(this){Orientation=Orientation.Vertical};
+            options.SetPadding(Dp(16),Dp(8),Dp(16),Dp(8));
+            var checks=AvailableSignals.Select(j=>new CheckBox(this){Text=BavarianLiveFrame.Label(j,_ru),Checked=_selectedSignals.Contains(j)}).ToArray();
+            foreach(var check in checks)options.AddView(check);
+            var scroll=new ScrollView(this);scroll.AddView(options);
+            new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Select sensors","Выбор параметров")).SetView(scroll)
+                .SetPositiveButton(T("Save","Сохранить"),(d,a)=>{
+                    var selection=AvailableSignals.Where((j,i)=>checks[i].Checked).ToArray();
+                    if(selection.Length==0){_output.Text=T("Select at least one sensor.","Выберите хотя бы один параметр.");return;}
+                    _selectedSignals=selection;
+                    GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private)?.Edit()?.PutString(_group,string.Join(",",selection))?.Apply();
+                    UpdateSelectionLabel();_panel.ShowSelection(selection);
+                }).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
         }
         private string LatestCsv()
         {
@@ -372,12 +413,13 @@ namespace BmwDeepObd
                 }
                 catch(Exception ex){_output.Text=Describe(ex);_liveRunning=false;return;}
                 _panel.ResetHistory();
+                _panel.ShowSelection(_dashboard?_selectedSignals:AvailableSignals);
                 _panel.Visibility=ViewStates.Visible;
                 progress=new Progress<BavarianLiveFrame>(frame=>{
                     if(!IsFinishing&&!IsDestroyed&&_visible&&_liveRunning)_panel.UpdateFrame(frame);
                 });
             }
-            else _panel.Visibility=ViewStates.Gone;
+            else if(!_dashboard)_panel.Visibility=ViewStates.Gone;
             _activeDevice=device.DeviceName;
             Log("START "+operation+" SGBD="+name+" USB="+device.VendorId.ToString("X4")+":"+device.ProductId.ToString("X4"));
             _busy=true;_cancel=new CancellationTokenSource();
@@ -387,7 +429,7 @@ namespace BmwDeepObd
             try
             {
                 bool gearbox=name=="d_egs.grp"||name.StartsWith("gs19",StringComparison.Ordinal);
-                string[] jobs=live||operation=="SNAPSHOT"?(gearbox?GearboxJobs:EngineJobs):extra?(gearbox?GearboxExtra:EngineExtra):new[]{operation};
+                string[] jobs=live&&_dashboard?_selectedSignals.ToArray():live||operation=="SNAPSHOT"?(gearbox?GearboxJobs:EngineJobs):extra?(gearbox?GearboxExtra:EngineExtra):new[]{operation};
                 var result=await Task.Run(()=>Execute(manager,device.DeviceName,name,jobs,expected,expectedVariant,token,live,progress,csvPath));
                 if(IsFinishing||IsDestroyed)return;
                 if(token.IsCancellationRequested&&!live)return;
@@ -410,6 +452,7 @@ namespace BmwDeepObd
             finally
             {
                 _cancel.Dispose();_cancel=null;_busy=false;_activeDevice=null;_liveRunning=false;
+                if(live&&!IsFinishing&&!IsDestroyed)_panel.MarkStopped();
                 if(!IsFinishing&&!IsDestroyed)Refresh();
             }
         }

@@ -20,7 +20,7 @@ namespace BmwDeepObd
         private LinearLayout _body;
         private TextView _usb;
         private TextView _ecu;
-        private Button _diagnostics, _transmission, _developer, _library, _faults;
+        private Button _diagnostics, _transmission, _developer, _library, _faults, _liveEngine, _liveEgs;
         private bool _ru;
         private string T(string en, string ru) => _ru ? ru : en;
         private int Dp(int value) => (int)(value * Resources.DisplayMetrics.Density + 0.5f);
@@ -42,42 +42,55 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  1.2.1 LIVE DATA + DTC", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  1.3 DASHBOARD", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
             AddText(T("READ ONLY · FIRST VEHICLE TEST", "ТОЛЬКО ЧТЕНИЕ · ПЕРВЫЙ ТЕСТ"), 13, "#67B3FF");
-            AddButton(T("Language: English / Русский", "Язык: Русский / English"), (s,e) =>
-            {
-                new AndroidX.AppCompat.App.AlertDialog.Builder(this)
-                    .SetTitle("Language / Язык")
-                    .SetSingleChoiceItems(new[] { "English", "Русский" }, _ru ? 1 : 0, (dialog, args) =>
-                    {
-                        BavarianLanguage.SetRussian(this, args.Which == 1);
-                        (dialog as Android.Content.IDialogInterface)?.Dismiss();
-                        Recreate();
+            AddText(T("CONNECTION","ПОДКЛЮЧЕНИЕ"),13,"#67B3FF",18);
+            _usb = AddText("", 14, "#F2F6FC");
+            _ecu = AddText("", 12, "#C2CDDD");
+            AddButton(T("Refresh USB","Обновить USB"),(s,e)=>RefreshStatus());
+            AddText(T("DIAGNOSTICS","ДИАГНОСТИКА"),13,"#67B3FF",24);
+            var row1=TileRow();
+            _faults=Tile(row1,T("Fault codes\nDDE + EGS","Ошибки\nDDE + EGS"),(s,e)=>OpenVehicle("faults"));
+            _liveEngine=Tile(row1,T("Live Data\nEngine","Live Data\nДвигатель"),(s,e)=>OpenVehicle("live_engine"));
+            var row2=TileRow();
+            _liveEgs=Tile(row2,T("Live Data\nTransmission","Live Data\nАКПП"),(s,e)=>OpenVehicle("live_egs"));
+            Tile(row2,T("DEMO\nOffline dashboard","DEMO\nБез автомобиля"),(s,e)=>StartActivity(new Intent(this,typeof(BavarianDemoActivity))));
+            AddText(T("ADVANCED","ДОПОЛНИТЕЛЬНО"),13,"#67B3FF",24);
+            var row3=TileRow();
+            _diagnostics=Tile(row3,T("Engine\nECU details","Двигатель\nДанные блока"),(s,e)=>OpenVehicle("engine"));
+            _transmission=Tile(row3,T("Transmission\nECU details","АКПП\nДанные блока"),(s,e)=>OpenVehicle("transmission"));
+            var row4=TileRow();
+            _developer=Tile(row4,T("Developer\nManual PRG","Инженерный\nРежим"),(s,e)=>OpenVehicle("developer"));
+            _library=Tile(row4,T("ECU library\nOffline","Библиотека\nECU"),(s,e)=>StartActivity(new Intent(this,typeof(BavarianEcuActivity))));
+            AddButton(T("Language / Язык","Язык / Language"),(s,e)=>{
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("Language / Язык")
+                    .SetSingleChoiceItems(new[]{"English","Русский"},_ru?1:0,(dialog,args)=>{
+                        BavarianLanguage.SetRussian(this,args.Which==1);
+                        (dialog as Android.Content.IDialogInterface)?.Dismiss();Recreate();
                     }).Show();
             });
-            AddText("Diagnostic errors: English", 13, "#C2CDDD");
-            AddText(T("USB ADAPTER", "USB-АДАПТЕР"), 14, "#67B3FF", 24);
-            _usb = AddText("", 16, "#F2F6FC");
-            AddText(T("DIAGNOSTIC DATA", "ДИАГНОСТИЧЕСКИЕ ДАННЫЕ"), 14, "#67B3FF", 24);
-            _ecu = AddText("", 16, "#F2F6FC");
-            AddButton(T("Refresh hardware check", "Обновить проверку USB"), (s,e) => RefreshStatus());
-            _library = AddButton(T("ECU library · offline inspection", "Библиотека ECU · просмотр"), (s,e) =>
-                StartActivity(new Intent(this, typeof(BavarianEcuActivity))));
-            _faults = AddButton(T("Fault codes · DDE + EGS", "Ошибки · DDE + EGS"), (s,e) => OpenVehicle("faults"));
-            _diagnostics = AddButton(T("Engine · automatic detection", "Двигатель · автоопределение"), (s,e) =>
-                OpenVehicle("engine"));
-            _transmission = AddButton(T("Transmission · automatic detection", "АКПП · автоопределение"), (s,e) =>
-                OpenVehicle("transmission"));
-            _developer = AddButton(T("Developer mode · manual PRG", "Инженерный режим · ручной PRG"), (s,e) =>
-                OpenVehicle("developer"));
-            AddButton(T("DEMO · offline live data", "DEMO · автономный Live Data"), (s,e) => StartActivity(new Intent(this, typeof(BavarianDemoActivity))));
-            _library.Enabled = _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = false;
+            _library.Enabled = _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = _liveEngine.Enabled = _liveEgs.Enabled = false;
             _ = LoadLibraryAsync();
             AddText(T("Experimental read-only vehicle diagnostics. Test while parked; verify the ECU variant first.", "Экспериментальная диагностика только для чтения. Проверяйте на стоящем автомобиле; сначала подтвердите вариант ECU."), 14, "#C2CDDD", 24);
             AddText("Based on Deep OBD / EdiabasLib by Ulrich Holeschak · GPL-3.0", 12, "#C2CDDD", 16);
         }
 
+        private LinearLayout TileRow()
+        {
+            var row=new LinearLayout(this){Orientation=Orientation.Horizontal};
+            _body.AddView(row,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)});
+            return row;
+        }
+        private Button Tile(LinearLayout row,string label,EventHandler click)
+        {
+            var b=new Button(this){Text=label,TextSize=15};
+            b.SetAllCaps(false);b.SetTextColor(C("#F2F6FC"));
+            var shape=new Android.Graphics.Drawables.GradientDrawable();
+            shape.SetColor(C("#19283B"));shape.SetCornerRadius(Dp(12));
+            b.Background=shape;b.SetPadding(Dp(8),Dp(12),Dp(8),Dp(12));b.Click+=click;
+            var lp=new LinearLayout.LayoutParams(0,Dp(104),1);lp.SetMargins(Dp(4),0,Dp(4),0);row.AddView(b,lp);return b;
+        }
         private void OpenVehicle(string mode)
         {
             var intent = new Intent(this, typeof(BavarianVehicleActivity));
@@ -119,7 +132,7 @@ namespace BmwDeepObd
             if (IsFinishing || IsDestroyed) return;
             _ecu.Text = report;
             _library.Enabled = true;
-            _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = report.StartsWith("E60 V74 ECU library: 675 / 675 verified", StringComparison.Ordinal);
+            _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = _liveEngine.Enabled = _liveEgs.Enabled = report.StartsWith("E60 V74 ECU library: 675 / 675 verified", StringComparison.Ordinal);
         }
 
         private void RefreshStatus()
