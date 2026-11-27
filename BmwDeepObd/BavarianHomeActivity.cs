@@ -42,9 +42,9 @@ namespace BmwDeepObd
             scroll.AddView(_body);
             SetContentView(scroll);
             AddText("BAVARIAN", 32, "#F2F6FC");
-            AddText("DIAGNOSTICS  /  1.5 VEHICLE SCAN", 15, "#67B3FF");
+            AddText("DIAGNOSTICS  /  1.6 SERVICE & HISTORY", 15, "#67B3FF");
             AddText("BMW E60 · M57 · K+DCAN USB", 16, "#C2CDDD");
-            AddText(T("READ ONLY · FIRST VEHICLE TEST", "ТОЛЬКО ЧТЕНИЕ · ПЕРВЫЙ ТЕСТ"), 13, "#67B3FF");
+            AddText(T("EXPERIMENTAL · CLEAR ONLY WITH CONFIRMATION", "ТЕСТ · УДАЛЕНИЕ ТОЛЬКО С ПОДТВЕРЖДЕНИЕМ"), 13, "#67B3FF");
             AddText(T("CONNECTION","ПОДКЛЮЧЕНИЕ"),13,"#67B3FF",18);
             _usb = AddText("", 14, "#F2F6FC");
             _ecu = AddText("", 12, "#C2CDDD");
@@ -75,7 +75,7 @@ namespace BmwDeepObd
             });
             _library.Enabled = _diagnostics.Enabled = _transmission.Enabled = _developer.Enabled = _faults.Enabled = _liveEngine.Enabled = _liveEgs.Enabled = _injectors.Enabled = _vehicleScan.Enabled = false;
             _ = LoadLibraryAsync();
-            AddText(T("Experimental read-only vehicle diagnostics. Test while parked; verify the ECU variant first.", "Экспериментальная диагностика только для чтения. Проверяйте на стоящем автомобиле; сначала подтвердите вариант ECU."), 14, "#C2CDDD", 24);
+            AddText(T("Experimental diagnostics. Fault clearing requires confirmation. Test while parked.", "Экспериментальная диагностика. Удаление ошибок требует подтверждения. Проверяйте на стоящем автомобиле."), 14, "#C2CDDD", 24);
             AddText("Based on Deep OBD / EdiabasLib by Ulrich Holeschak · GPL-3.0", 12, "#C2CDDD", 16);
         }
 

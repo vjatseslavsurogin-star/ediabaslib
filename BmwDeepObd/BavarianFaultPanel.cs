@@ -41,7 +41,7 @@ namespace BmwDeepObd
         private static string Get(Dictionary<string,string> r,string k)=>r.TryGetValue(k,out string value)?value??"":"";
         public void BeginScan(string[] modules){_planned=modules.ToArray();_results.Clear();Render();}
         public void AddFailure(string module,string error)
-        {_results.Add(new ModuleResult{Module=module,Error=error});Render();}
+        {_results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Error=error});Render();}
         internal static List<Dictionary<string,string>> ParseRecords(List<Dictionary<string,string>> rows)
         {
             var records=new List<Dictionary<string,string>>();
@@ -64,7 +64,31 @@ namespace BmwDeepObd
         }
         public void AddResult(string module,string variant,List<Dictionary<string,string>> rows,Dictionary<int,List<Dictionary<string,string>>> details=null,string vin=null,string note=null)
         {
-            _results.Add(new ModuleResult{Module=module,Variant=variant,Records=ParseRecords(rows),Details=details,Vin=vin,ExtraNote=note});Render();
+            _results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Variant=variant,Records=ParseRecords(rows),Details=details,Vin=vin,ExtraNote=note});Render();
+        }
+        public string ExportText()
+        {
+            var lines=new List<string>();
+            foreach(string planned in _planned.Where(p=>!_results.Any(m=>m.Module==p)))lines.Add(planned+" · not read");
+            foreach(var m in _results)
+            {
+                lines.Add("\n"+m.Module+" · "+m.Variant);
+                if(m.Error!=null){lines.Add("Read failed: "+m.Error);continue;}
+                if(m.Vin!=null)lines.Add("VIN: "+m.Vin);
+                if(m.ExtraNote!=null)lines.Add(m.ExtraNote);
+                if(m.Records.Count==0)lines.Add("No recognized records");
+                foreach(var record in m.Records)
+                {
+                    lines.Add("\n"+Code(record));
+                    lines.AddRange(record.Select(k=>k.Key+": "+k.Value));
+                }
+                if(m.Details!=null)foreach(var pair in m.Details)foreach(var record in pair.Value)
+                {
+                    lines.Add("\nDETAIL "+pair.Key.ToString("X4"));
+                    lines.AddRange(record.Select(k=>k.Key+": "+k.Value));
+                }
+            }
+            return string.Join("\n",lines);
         }
         private static string Code(Dictionary<string,string> r)
         {
