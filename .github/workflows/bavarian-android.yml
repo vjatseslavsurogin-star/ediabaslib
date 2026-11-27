@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bavarian-v04-unverified-debug-apk
+          name: bavarian-v05-ecu-import-preview-apk
           path: artifacts/
           if-no-files-found: error
           retention-days: 7

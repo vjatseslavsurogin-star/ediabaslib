@@ -15,3 +15,6 @@ Upstream `BmwDeepObd/ReadMe.txt` requires the matching encrypted ECU asset in `B
 5. Vehicle diagnostics are not verified; they require authorized ECU data and actual on-vehicle tests.
 
 CI disables bundled PIC adapter updates for the USB baseline. No firmware placeholders are used. No connection or vehicle signals are simulated by the launcher.
+
+## 0.5: local ECU library (offline)
+Import legally obtained BMW EDIABAS .PRG and .GRP files from Android's system file picker. Files are copied into private storage, not uploaded. Existing names are not overwritten. Use a single matching ECU data release; do not mix variants. The inspector uses EdiabasNet with no hardware interface and NoInitForVJobs=true to enumerate _JOBS for individual PRG files, without executing any actual ECU job. Group identification is not executed. This is separate from the encrypted upstream asset: no checks are bypassed. Import is not a live diagnostic connection and no compatibility with an actual DDE is yet established. No proprietary ECU binaries are distributed. To obtain your own files, consult the authorized BMW Standard Tools installation's EDIABAS/ECU directory and confirm the DDE/EGS variant with a diagnostic tool. The debug build is not yet tested on Android hardware.
