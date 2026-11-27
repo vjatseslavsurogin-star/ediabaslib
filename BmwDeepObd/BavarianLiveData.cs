@@ -193,7 +193,7 @@ namespace BmwDeepObd
                 var card=new LinearLayout(Context){Orientation=Orientation.Vertical};card.SetPadding(Dp(10),Dp(9),Dp(10),Dp(9));
                 var bg=new Android.Graphics.Drawables.GradientDrawable();bg.SetColor(Color.Rgb(25,40,59));bg.SetCornerRadius(Dp(10));card.Background=bg;
                 var lp=new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WrapContent,1);lp.SetMargins(Dp(4),0,Dp(4),0);row.AddView(card,lp);
-                var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12,MinLines=2};label.SetTextColor(Color.Rgb(178,195,215));card.AddView(label);
+                var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12};label.SetMinLines(2);label.SetTextColor(Color.Rgb(178,195,215));card.AddView(label);
                 var readout=new TextView(Context){Text="—",TextSize=25};readout.SetTextColor(Color.White);card.AddView(readout);
                 _readouts[jobs[i]]=readout;
             }
