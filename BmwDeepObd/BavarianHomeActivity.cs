@@ -42,7 +42,7 @@ namespace BmwDeepObd
         {
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab){_tab=i;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"BAVARIAN  /  1.7",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
+            var brand=BavarianUi.Text(this,"BAVARIAN  /  1.8",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(titles[_tab],30,true,8);
             var connection=Card();_usb=BavarianUi.Text(this,"",14,true);connection.AddView(_usb);

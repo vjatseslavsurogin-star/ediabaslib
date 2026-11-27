@@ -243,7 +243,7 @@ namespace BmwDeepObd
                     .SetMessage("The report may contain vehicle identifiers and ECU responses. Share only with a trusted recipient.")
                     .SetPositiveButton("Share",(d,a)=>{
                         var send=new Intent(Intent.ActionSend);send.SetType("text/plain");
-                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.7 diagnostic report");
+                        send.PutExtra(Intent.ExtraSubject,"Bavarian V1.8 diagnostic report");
                         send.PutExtra(Intent.ExtraText,report);
                         StartActivity(Intent.CreateChooser(send,"Share report"));
                     }).SetNegativeButton("Cancel",(d,a)=>{}).Show();
