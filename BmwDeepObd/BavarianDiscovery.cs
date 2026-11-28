@@ -131,7 +131,7 @@ namespace BmwDeepObd
                 var tile=BavarianUi.Text(this,BavarianScanCatalog.Module(group),12,true);tile.Gravity = GravityFlags.Center;
                 tile.SetPadding(Dp(4),Dp(8),Dp(4),Dp(8));
                 tile.Background=BavarianUi.Shape(this,BavarianUi.Surface,8);
-                tile.SetTextColor(state=="responded"?BavarianUi.Green:state=="unsupported"||owner=="expected"?BavarianUi.Warning:BavarianUi.Muted);
+                tile.SetTextColor(state=="responded"?BavarianUi.Green:state=="unsupported"||owner=="expected"||owner=="retrofit"?BavarianUi.Warning:BavarianUi.Muted);
                 tile.Clickable=true;tile.Focusable=true;tile.ContentDescription=BavarianScanCatalog.Module(group)+" · "+state;
                 tile.Click+=(s,e)=>{if(_busy)return;var label=BavarianScanCatalog.Module(group);
                     var detail=_discoveryResults.TryGetValue(group,out var info)?info.Detail:T("Not checked","Не проверен");
@@ -155,11 +155,11 @@ namespace BmwDeepObd
                 string owner=profile?.GetString("owner_"+group,"")??"";
                 bool yes=r.Item1=="responded",unsupported=r.Item1=="unsupported";
                 if(!_showUnconfirmed&&!yes&&!unsupported&&owner!="expected"&&owner!="retrofit")continue;
-                string status=yes?T("Responded","Ответил"):unsupported?T("Variant not supported","Вариант не поддерживается"):owner=="absent"?T("Owner: not installed; not confirmed by scan","По данным владельца отсутствует; поиском не подтверждено"):owner=="expected"?T("Expected; response not confirmed","Ожидается; ответ не подтверждён"):T("Presence unconfirmed","Наличие не подтверждено");
+                string status=yes?T("Responded","Ответил"):unsupported?T("Variant not supported","Вариант не поддерживается"):owner=="absent"?T("Owner: not installed; not confirmed by scan","По данным владельца отсутствует; поиском не подтверждено"):owner=="expected"?T("Expected; response not confirmed","Ожидается; ответ не подтверждён"):owner=="retrofit"?T("Owner: retrofit; response unconfirmed","Владелец: дооснащение; ответ не подтверждён"):T("Presence unconfirmed","Наличие не подтверждено");
                 if(yes&&owner=="absent")status+=T(" · conflicts with owner note"," · противоречит отметке владельца");
                 var card=new LinearLayout(this){Orientation=Orientation.Vertical};card.Background=BavarianUi.Shape(this,BavarianUi.Surface);card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));
                 card.AddView(BavarianUi.Text(this,BavarianScanCatalog.Module(group),18,true));
-                var state=BavarianUi.Text(this,status,13,true);state.SetTextColor(yes?BavarianUi.Green:unsupported||owner=="expected"?BavarianUi.Warning:BavarianUi.Muted);card.AddView(state);
+                var state=BavarianUi.Text(this,status,13,true);state.SetTextColor(yes?BavarianUi.Green:unsupported||owner=="expected"||owner=="retrofit"?BavarianUi.Warning:BavarianUi.Muted);card.AddView(state);
                 card.AddView(BavarianUi.Text(this,r.Item2,12));
                 if(profile!=null)
                 {
