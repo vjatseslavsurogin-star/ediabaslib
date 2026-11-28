@@ -433,14 +433,14 @@ namespace BmwDeepObd
             _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
             _scanIdentities.Clear();_scanDevice=device.DeviceName;
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
-            _cancel.CancelAfter(TimeSpan.FromMinutes(_health&&retryTargets==null?6:_fullScan||_customScan||retryTargets!=null?8:(_scopedGroups?.Length??0)>2?3:1));
+            _cancel.CancelAfter(TimeSpan.FromMinutes(_health&&retryTargets==null?6:_fullScan||_customScan||retryTargets!=null?8:(_scopedGroups?.Length??0)>2?3:2));
             var token=_cancel.Token;
             bool incomplete=false,vinConflict=false;string scanVin=null;var extraReports=new List<string>();
             void ObserveVin(string vin){if(!BavarianScanSnapshot.ValidVin(vin))return;if(scanVin!=null&&scanVin!=vin)vinConflict=true;else scanVin=vin;}
             Refresh();_output.Text=T("Reading modules...","Чтение блоков...");
             try
             {
-                if(_smartScan&&retryTargets==null)
+                if(!targets.Contains("d_cas.grp")||_smartScan)
                 {
                     _output.Text=T("Checking current VIN and saved discovery profile…","Проверка VIN и сохранённой конфигурации…");
                     try
@@ -448,7 +448,7 @@ namespace BmwDeepObd
                         using var preflight=CancellationTokenSource.CreateLinkedTokenSource(token);preflight.CancelAfter(TimeSpan.FromSeconds(20));
                         var cas=await Task.Run(()=>Execute(manager,device.DeviceName,"d_cas.grp",new[]{"IDENT"},null,null,preflight.Token,false,null,null,false,true));
                         ObserveVin(cas.Vin);
-                        if(!string.IsNullOrEmpty(cas.Vin))
+                        if(_smartScan&&retryTargets==null&&BavarianScanSnapshot.ValidVin(cas.Vin))
                         {
                             var profile=DiscoveryProfile(cas.Vin);
                             if(profile.GetBoolean("saved",false)&&profile.GetBoolean("complete",false))
@@ -461,9 +461,9 @@ namespace BmwDeepObd
                     }
                     catch(Exception ex){Log("SMART PROFILE UNAVAILABLE "+Describe(ex));}
                     if(token.IsCancellationRequested)incomplete=true;
-                    if(string.IsNullOrEmpty(_scanProfileNote))_scanProfileNote=T("No matching VIN profile; full 24-group scan used.","Нет подходящего профиля VIN; выполнен полный опрос 24 групп.");
+                    if(_smartScan&&retryTargets==null){if(string.IsNullOrEmpty(_scanProfileNote))_scanProfileNote=T("No matching VIN profile; full 24-group scan used.","Нет подходящего профиля VIN; выполнен полный опрос 24 групп.");
                     _lastScanTargets=targets.ToArray();
-                    _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
+                    _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());}
                 }
                 if(retryTargets!=null)_scanProfileNote=T("Separate retry scan of previously unconfirmed groups.","Отдельное повторное чтение неподтверждённых групп.");
                 foreach(string group in targets)
@@ -517,9 +517,9 @@ namespace BmwDeepObd
                     var snapshot=_faultPanel.Capture(vinConflict?null:scanVin,partial);
                     reportText="VIN: "+(snapshot.Vin??T("Not verified in this scan","Не подтверждён в этой сессии"))+"\n"+T("Groups read: ","Групп прочитано: ")+_faultPanel.ReadGroupCount+"/"+_faultPanel.PlannedGroupCount+"\n"+T("Recognized fault records: ","Распознанные записи: ")+_faultPanel.RelevantRecordCount+"\n\n"+reportText;
                     bool saved=SaveHistory(retryTargets!=null?T("Retry fault scan","Повторное чтение ошибок"):_health?T("Vehicle health check","Комплексная проверка"):T("Fault scan","Чтение ошибок"),reportText,partial,snapshot);
-                    _output.Text=token.IsCancellationRequested?T("Scan incomplete / cancelled.","Сканирование не завершено / отменено."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
+                    _output.Text=partial?T("Partial scan. Some groups were not read.","Частичная проверка. Некоторые группы не прочитаны."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
                     if(!string.IsNullOrEmpty(_scanProfileNote))_output.Text=_scanProfileNote+"\n"+_output.Text;
-                    if(_health&&retryTargets==null)_output.Text=(incomplete||token.IsCancellationRequested?T("Partial check · see unavailable readings.","Неполная проверка · есть недоступные данные."):T("Read-only check completed.","Чтение завершено."))+"\n\n"+string.Join("\n\n",extraReports);
+                    if(_health&&retryTargets==null)_output.Text=(partial?T("Partial check · see unavailable readings.","Неполная проверка · есть недоступные данные."):T("Read-only check completed.","Чтение завершено."))+"\n\n"+string.Join("\n\n",extraReports);
                     if(saved)
                     {
                         GetSharedPreferences("bavarian_overview",FileCreationMode.Private).Edit()
@@ -569,8 +569,8 @@ namespace BmwDeepObd
                 if(!string.IsNullOrEmpty(vin))edit.PutString("vin",vin);
                 if(module=="DDE"||module=="EGS")
                 {
-                    var records=BavarianFaultPanel.ParseRecords(rows);
-                    string State(Dictionary<string,string> r)=>r.TryGetValue("F_VERSION",out string ver)&&ver=="2"&&r.TryGetValue("F_VORHANDEN_NR",out string state)?state:"";
+                    var records=BavarianFaultPanel.ParseRecords(rows).Where(r=>BavarianFaultRecords.Code(r)!="").ToList();
+                    string State(Dictionary<string,string> r)=>BavarianFaultRecords.State(r);
                     string summary=rows==null?"Read failed":records.Count==0?"No recognized records":
                         "Active "+records.Count(r=>State(r)=="35")+" · Stored "+records.Count(r=>State(r)=="33")+" · Other "+records.Count(r=>State(r)!="35"&&State(r)!="33");
                     edit.PutString(module+"_summary",summary);
@@ -778,6 +778,7 @@ namespace BmwDeepObd
             public List<Dictionary<string,string>> FaultRows;
             public Dictionary<int,List<Dictionary<string,string>>> ExtraDetails=new Dictionary<int,List<Dictionary<string,string>>>();
             public string Vin,ExtraNote,VehicleOrder;
+            public BavarianVehicleOrder.DecodedOrder DecodedFa;
             public double? EngineRpm;
             public int Ok,Failed;
         }
@@ -954,6 +955,23 @@ namespace BmwDeepObd
                             var order=fa.Where(r=>r.ContainsKey("FAHRZEUGAUFTRAG")).Select(r=>r["FAHRZEUGAUFTRAG"]).Distinct().ToArray();
                             if(status.Length==0||status.Any(x=>x!="OKAY")||!fa.Any(r=>r.TryGetValue("SPEICHER_STATUS",out var occupied)&&occupied=="BELEGT")||order.Length!=1||string.IsNullOrWhiteSpace(order[0]))throw new IOException("FA unavailable or not occupied");
                             result.VehicleOrder=order[0];
+                            var stream=BavarianVehicleOrder.HexStream(order[0]);
+                            if(stream!=null)
+                            {
+                                // No vehicle interface is installed in this separate interpreter.
+                                VerifyFile("fa.prg","154cd248a04b0d0661b528a7150d6c22214094937628678dab371511302500ed");
+                                using var decoder=new EdiabasNet();
+                                decoder.SetConfigProperty("EcuPath",Root);
+                                decoder.SgbdFileName="fa.prg";
+                                decoder.AbortJobFunc=()=>token.IsCancellationRequested;
+                                decoder.ArgBinary=stream;decoder.ArgBinaryStd=null;decoder.ResultsRequests=string.Empty;
+                                decoder.ExecuteJob("FA_STREAM2STRUCT");
+                                var decoded=decoder.ResultSets;
+                                if(decoded==null||decoded.Count<2)throw new IOException("FA decoder returned no result");
+                                var decodedRows=decoded.Skip(1).Select(row=>row.ToDictionary(k=>k.Key,k=>k.Value.OpData is byte[] bytes?Convert.ToHexString(bytes):Convert.ToString(k.Value.OpData,CultureInfo.InvariantCulture))).ToList();
+                                result.DecodedFa=BavarianVehicleOrder.ParseDecoded(decodedRows);
+                                if(result.DecodedFa==null)throw new IOException("FA decoder result did not pass validation");
+                            }
                         }
                         if(readDetails&&result.FaultRows!=null&&(variant=="d50m57e0.prg"||variant=="gs19a.prg"))
                         {
