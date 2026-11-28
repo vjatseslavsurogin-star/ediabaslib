@@ -11,6 +11,7 @@ namespace BmwDeepObd
         public string Time {get;set;}
         public ScanGroup[] Groups {get;set;}=Array.Empty<ScanGroup>();
         public bool Partial {get;set;}
+        public bool Imported {get;set;}
         public sealed class ScanGroup
         {
             public string Module {get;set;}
@@ -26,6 +27,7 @@ namespace BmwDeepObd
                 throw new InvalidOperationException(T("Comparison requires the same verified VIN in both scans.","Для сравнения нужен одинаковый подтверждённый VIN обеих проверок."));
             if(a.Groups==null||b.Groups==null)throw new InvalidOperationException("Invalid snapshot groups");
             var lines=new List<string>{a.Vin,a.Time+" → "+b.Time,T("Recognized code records only; not a repair verdict. Groups can overlap.","Только распознанные коды; не заключение о ремонте. Группы могут пересекаться.")};
+            if(a.Imported||b.Imported)lines.Add(T("Includes restored historical data; source not independently verified.","Включены восстановленные исторические данные; источник независимо не проверен."));
             var left=a.Groups.ToDictionary(g=>g.Module,StringComparer.Ordinal);var right=b.Groups.ToDictionary(g=>g.Module,StringComparer.Ordinal);
             foreach(string module in left.Keys.Union(right.Keys).OrderBy(x=>x,StringComparer.Ordinal))
             {
