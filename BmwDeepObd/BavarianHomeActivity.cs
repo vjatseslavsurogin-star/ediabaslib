@@ -48,7 +48,7 @@ namespace BmwDeepObd
             _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4.1",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
+            if(_tab==4){var edition=BavarianUi.Text(this,"BAVARIAN DIAGNOSTICS  /  2.4.2",12,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);}
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
@@ -72,7 +72,8 @@ namespace BmwDeepObd
                 var vin=prefs.GetString("vin","");
                 car.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(vin)?T("Profile selected manually · VIN not read","Профиль выбран вручную · VIN не считан"):T("Last read VIN: ","Последний считанный VIN: ")+vin,12));
                 _libraryStatus=BavarianUi.Text(this,"",12);car.AddView(_libraryStatus);
-                var check=BavarianUi.Action(_body,T("Diagnostics","Диагностика"),(s,e)=>{_tab=1;_system="";Render();},true);
+                var check=BavarianUi.Action(_body,T("Scan vehicle","Сканировать автомобиль"),(s,e)=>ChooseScan(),true);_gated.Add(check);
+                Route(T("ECU modules","Блоки ECU"),T("Equipment, VIN and vehicle profile","Оборудование, VIN и профиль"),ShowEquipment);
                 if(GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("metrics",true)){
                 Section(T("Last recorded values","Последние записанные данные"));
                 var faults=LocalFaultSummary(prefs.GetString("DDE_summary","—"));
@@ -88,13 +89,13 @@ namespace BmwDeepObd
                 if(_system=="")
                 {
                     Section(T("Fault diagnostics","Диагностика ошибок"));
-                    FeatureRoute("vehicle_scan");FeatureRoute("smart_scan");FeatureRoute("faults");
-                    Section(T("Vehicle equipment","Оборудование автомобиля"));
-                    FeatureRoute("discovery");
+                    var scan=BavarianUi.Action(_body,T("Scan vehicle","Сканировать автомобиль"),(s,e)=>ChooseScan(),true);_gated.Add(scan);
+                    Route(T("Fault memory actions","Действия с ошибками"),T("MIL and verified DDE / EGS clearing","MIL и подтверждённое удаление DDE / EGS"),()=>OpenFeature("service"));
+                    Route(T("ECU modules","Блоки ECU"),T("Equipment, VIN and vehicle profile","Оборудование, VIN и профиль"),ShowEquipment);
                     Section(T("Individual systems","Отдельные системы"));SystemGrid();
                     Section(T("Additional checks","Дополнительные проверки"));
-                    FeatureRoute("health");FeatureRoute("mileage");FeatureRoute("ecu_info");
-                    FeatureRoute("history");
+                    FeatureRoute("mileage");
+                    Route(T("Reports & history","Отчёты и история"),T("Saved scans and PDF export","Сохранённые проверки и PDF"),ShowReports,false);
                     Route(T("Search functions","Поиск функций"),T("Find by name or ECU","По названию или ECU"),SearchFunctions,false);
                 }
                 else RenderSystem();
@@ -102,18 +103,17 @@ namespace BmwDeepObd
             else if(_tab==2)
             {
                 Section(T("Live dashboards","Приборные панели"));
-                FeatureRoute("live_engine");FeatureRoute("live_egs");FeatureRoute("injectors");
+                Route(T("Engine Live Data","Параметры двигателя"),T("Sensors and cylinder corrections","Датчики и коррекции цилиндров"),ShowEngineData);
+                FeatureRoute("live_egs");
                 Section(T("Recordings","Записи"));
                 FeatureRoute("logs");FeatureRoute("demo");
             }
             else if(_tab==3)
             {
                 Section(T("Maintenance & actions","Обслуживание и операции"));
-                FeatureRoute("battery_read");FeatureRoute("cbs");FeatureRoute("service");
-                Section(T("Replacement procedures","Регистрация замен"));FeatureRoute("battery");
-                Text(T("Write operations remain separate and require confirmation. CBS is read-only.","Операции записи требуют отдельного подтверждения. CBS — только чтение."),13,false,12);
-                Section(T("Reports","Отчёты"));
-                FeatureRoute("pdf");
+                FeatureRoute("battery_read");FeatureRoute("cbs");
+                Section(T("Engine & transmission","Двигатель и трансмиссия"));FeatureRoute("ima");FeatureRoute("adaptations");
+                Text(T("Write operations require separate confirmation. CBS is read-only.","Операции записи требуют отдельного подтверждения. CBS — только чтение."),12,false,12);
             }
             else
             {
@@ -194,7 +194,7 @@ namespace BmwDeepObd
             ("ima",T("Injector codes","Коды форсунок"),"IMA · "+T("Read only","Чтение")),
             ("glow",T("Glow system","Свечи накаливания"),T("Fault records","Записи ошибок")),
             ("adaptations",T("Transmission adaptations","Адаптации АКПП"),"GS19A · "+T("Read only","Чтение")),
-            ("battery_read",T("Battery diagnostics","Диагностика АКБ"),"IBS · SOC / SOH"),
+            ("battery_read",T("Battery management","Аккумулятор"),T("IBS · SOC / SOH · replacement","IBS · SOC / SOH · замена")),
             ("battery",T("Register new battery","Регистрация нового АКБ"),T("Read and register new battery","Чтение и регистрация нового АКБ")),
             ("cbs",T("CBS service","Сервисные интервалы"),"CBS · "+T("Read only","Чтение")),
             ("mileage",T("Mileage check","Проверка пробега"),"DDE / KOMBI / CAS"),
@@ -225,16 +225,39 @@ namespace BmwDeepObd
             BavarianUi.Action(_body,T("‹ All systems","‹ Все системы"),(s,e)=>{_system="";_systemPage=0;Render();});
             string[] ids=_system switch
             {
-                "engine"=>new[]{"fault_engine","live_engine","injectors","glow","ima","engine"},
-                "gearbox"=>new[]{"fault_gearbox","live_egs","adaptations","transmission"},
-                "power"=>new[]{"battery_read","battery"},
+                "engine"=>new[]{"fault_engine","glow"},
+                "gearbox"=>new[]{"fault_gearbox"},
+                "power"=>new[]{"battery_read"},
                 "chassis"=>new[]{"fault_chassis"},
                 "climate"=>new[]{"fault_climate"},
-                _=>new[]{"fault_body","ecu_info","mileage","cbs"}
+                _=>new[]{"fault_body"}
             };
             if(_system=="engine")ModuleSummary("DDE",T("Last saved scan","Последнее сохранённое чтение"));
             if(_system=="gearbox")ModuleSummary("EGS",T("Last saved scan","Последнее сохранённое чтение"));
             foreach(string id in ids)FeatureRoute(id);
+        }
+        private void ChooseScan()
+        {
+            if(!_ready)return;
+            var ids=new[]{"smart_scan","faults","vehicle_scan","health"};
+            var labels=new[]{
+                T("Automatic · VIN profile or full scan","Авто · профиль VIN или полный опрос"),
+                T("Quick · engine and transmission","Быстро · двигатель и АКПП"),
+                T("Full · all 24 candidate groups","Полный · все 24 группы-кандидата"),
+                T("Extended · 10 groups + service checks","Расширенный · 10 групп + сервисные проверки")
+            };
+            new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Scan vehicle","Сканирование автомобиля"))
+                .SetItems(labels,(d,a)=>OpenFeature(ids[a.Which])).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
+        }
+        private void ShowEquipment()=>ChooseFeature(T("ECU modules","Блоки ECU"),new[]{"discovery","ecu_info"});
+        private void ShowEngineData()=>ChooseFeature(T("Engine Live Data","Параметры двигателя"),new[]{"live_engine","injectors"});
+        private void ShowReports()=>ChooseFeature(T("Reports & history","Отчёты и история"),new[]{"history","pdf"});
+        private void ChooseFeature(string title,string[] ids)
+        {
+            var features=ids.Select(id=>Features().First(f=>f.Id==id)).ToArray();
+            new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(title)
+                .SetItems(features.Select(f=>f.Title+" · "+f.Sub).ToArray(),(d,a)=>OpenFeature(features[a.Which].Id))
+                .SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
         }
         private void SearchFunctions()
         {
