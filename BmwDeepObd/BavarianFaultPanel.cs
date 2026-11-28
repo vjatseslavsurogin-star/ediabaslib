@@ -13,7 +13,9 @@ namespace BmwDeepObd
     {
         private sealed class ModuleResult
         {
-            public string Module,Variant,Error,Vin,ExtraNote;
+            public string Module,Variant,Error,Vin,ExtraNote,ReadAt;
+            public bool Comparable;
+            public List<Dictionary<string,string>> Raw;
             public Dictionary<int,List<Dictionary<string,string>>> Details;
             public List<Dictionary<string,string>> Records;
         }
@@ -36,7 +38,7 @@ namespace BmwDeepObd
             _summary=TextLine(this,T("No scan performed.","Чтение ещё не выполнено."),16);
             _summary.Background=BavarianUi.Shape(context,BavarianUi.Surface);_summary.SetPadding(Dp(14),Dp(12),Dp(14),Dp(12));
             _countRow=new LinearLayout(context){Orientation=Orientation.Horizontal};
-            string[] labels={T("Active","Активные"),T("Stored","Сохранённые"),T("Other","Прочие")};
+            string[] labels={T("Active","Активные"),T("Stored","Сохранённые"),T("Unknown / not occurred","Неизвестные / не возникали")};
             Color[] colors={BavarianUi.Danger,BavarianUi.Warning,BavarianUi.Muted};
             for(int i=0;i<3;i++)
             {
@@ -68,41 +70,24 @@ namespace BmwDeepObd
         public void BeginScan(string[] modules){_planned=modules.ToArray();_results.Clear();UpdateModules();Render();}
         internal string[] UnconfirmedModules()=>_planned.Where(p=>!_results.Any(m=>m.Module==p&&m.Records!=null)).Distinct().ToArray();
         public void AddFailure(string module,string error)
-        {_results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Error=error});Render();}
-        internal static List<Dictionary<string,string>> ParseRecords(List<Dictionary<string,string>> rows)
-        {
-            var records=new List<Dictionary<string,string>>();
-            Dictionary<string,string> current=null;
-            string version="";
-            foreach(var r in rows??new List<Dictionary<string,string>>())
-            {
-                if(r.TryGetValue("F_VERSION",out string vers))version=vers;
-                if(r.ContainsKey("F_HEX_CODE")||(r.ContainsKey("F_ORT_NR")&&(current==null||current.ContainsKey("F_ORT_NR"))))
-                {
-                    if(current!=null)records.Add(current);
-                    current=new Dictionary<string,string>(r);
-                    if(!current.ContainsKey("F_VERSION")&&!string.IsNullOrEmpty(version))current["F_VERSION"]=version;
-                }
-                else if(current!=null)
-                    foreach(var kv in r)if(kv.Key.StartsWith("F_",StringComparison.Ordinal))current[kv.Key]=kv.Value;
-            }
-            if(current!=null)records.Add(current);
-            return records;
-        }
+        {_results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Error=error,ReadAt=DateTimeOffset.Now.ToString("o")});Render();}
+        internal static List<Dictionary<string,string>> ParseRecords(List<Dictionary<string,string>> rows)=>BavarianFaultRecords.Parse(rows);
         public void AddResult(string module,string variant,List<Dictionary<string,string>> rows,Dictionary<int,List<Dictionary<string,string>>> details=null,string vin=null,string note=null)
         {
             if(rows==null){AddFailure(module,T("No fault response","Ответ памяти ошибок отсутствует"));return;}
-            _results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Variant=variant,Records=ParseRecords(rows),Details=details,Vin=vin,ExtraNote=note});Render();
+            var parsed=ParseRecords(rows);
+            _results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Variant=variant,Records=parsed,Raw=rows,Comparable=BavarianFaultRecords.Comparable(rows,parsed),ReadAt=DateTimeOffset.Now.ToString("o"),Details=details,Vin=vin,ExtraNote=note});Render();
         }
         internal int ReadGroupCount=>_results.Count(m=>m.Records!=null);
         internal int PlannedGroupCount=>_planned.Length;
-        internal int RelevantRecordCount=>_results.Where(m=>m.Records!=null).Sum(m=>m.Records.Count(r=>State(r)!="32"));
+        internal int RelevantRecordCount=>_results.Where(m=>m.Records!=null).Sum(m=>BavarianFaultRecords.CountRelevant(m.Records));
         internal BavarianScanSnapshot Capture(string vin,bool partial)=>new BavarianScanSnapshot
         {
             Vin=vin,Time=DateTimeOffset.Now.ToString("o",CultureInfo.InvariantCulture),Partial=partial,
             Groups=_planned.Distinct().Select(module=>{
                 var m=_results.FirstOrDefault(x=>x.Module==module);
-                return new BavarianScanSnapshot.ScanGroup{Module=module,Variant=m?.Variant,Read=m?.Records!=null,
+                return new BavarianScanSnapshot.ScanGroup{Module=module,Variant=m?.Variant,Read=m?.Records!=null,Comparable=m?.Comparable??false,ReadAt=m?.ReadAt,
+                    States=m?.Records?.Where(r=>Code(r)!="").GroupBy(Code,StringComparer.OrdinalIgnoreCase).ToDictionary(g=>g.Key,g=>string.Join(",",g.Select(State).Distinct().OrderBy(x=>x,StringComparer.Ordinal)),StringComparer.OrdinalIgnoreCase),
                     Codes=m?.Records?.Where(r=>State(r)!="32").Select(Code).Where(c=>!string.IsNullOrWhiteSpace(c)).Distinct().ToArray()??Array.Empty<string>()};
             }).ToArray()
         };
@@ -116,12 +101,15 @@ namespace BmwDeepObd
                 if(m.Error!=null){lines.Add("Read failed: "+m.Error);continue;}
                 if(m.Vin!=null)lines.Add("VIN: "+m.Vin);
                 if(m.ExtraNote!=null)lines.Add(m.ExtraNote);
+                lines.Add("Read at: "+m.ReadAt);
+                if(!m.Comparable)lines.Add("Unverified fault-memory layout; no absence conclusion.");
                 if(m.Records.Count==0)lines.Add("No recognized records");
                 foreach(var record in m.Records)
                 {
                     lines.Add("\n"+Code(record));
                     lines.AddRange(record.Select(k=>k.Key+": "+k.Value));
                 }
+                if(m.Raw!=null&&!m.Comparable){lines.Add("\nRAW RESPONSE");foreach(var row in m.Raw)lines.AddRange(row.Select(k=>k.Key+": "+k.Value));}
                 if(m.Details!=null)foreach(var pair in m.Details)foreach(var record in pair.Value)
                 {
                     lines.Add("\nDETAIL "+pair.Key.ToString("X4"));
@@ -130,12 +118,7 @@ namespace BmwDeepObd
             }
             return string.Join("\n",lines);
         }
-        private static string Code(Dictionary<string,string> r)
-        {
-            if(int.TryParse(Get(r,"F_ORT_NR"),NumberStyles.Integer,CultureInfo.InvariantCulture,out int n))return n.ToString("X4");
-            string raw=Get(r,"F_HEX_CODE");
-            return raw.Length==6?raw.Substring(0,4):raw;
-        }
+        private static string Code(Dictionary<string,string> r)=>BavarianFaultRecords.Code(r);
         private string Description(ModuleResult m,string code,Dictionary<string,string> f)
         {
             if(m.Variant=="d50m57e0.prg")
@@ -151,7 +134,7 @@ namespace BmwDeepObd
             if(m.Variant=="gs19a.prg"&&code=="5150")return T("Trailer module CAN message missing","Отсутствует CAN-сообщение от модуля прицепа");
             return T("Original ECU description:","Исходное описание ECU:")+"\n"+Get(f,"F_ORT_TEXT")+"\n"+Get(f,"F_SYMPTOM_TEXT");
         }
-        private static string State(Dictionary<string,string> r)=>Get(r,"F_VERSION")=="2"?Get(r,"F_VORHANDEN_NR"):"";
+        private static string State(Dictionary<string,string> r)=>BavarianFaultRecords.State(r);
         private string Status(string value)=>value switch {
             "35"=>T("ACTIVE / STORED","АКТИВНАЯ / СОХРАНЕНА"),
             "33"=>T("STORED / NOT CURRENT","СОХРАНЕНА / НЕ АКТИВНА"),
@@ -159,18 +142,21 @@ namespace BmwDeepObd
             _=>T("UNKNOWN STATUS","НЕИЗВЕСТНЫЙ СТАТУС")};
         private void Render()
         {
+            if(_cards==null||_search==null)return;
             _cards.RemoveAllViews();
-            var records=_results.Where(m=>m.Records!=null).SelectMany(m=>m.Records).ToList();
-            bool any=_results.Any(m=>m.Records!=null&&m.Records.Count>0);
-            _counts[0].Text=any?records.Count(f=>State(f)=="35").ToString():"—";
-            _counts[1].Text=any?records.Count(f=>State(f)=="33").ToString():"—";
-            _counts[2].Text=any?records.Count(f=>State(f)!="35"&&State(f)!="33").ToString():"—";
-            _summary.Text=T("Groups read: ","Групп прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length+" · "+T("Failed / unconfirmed: ","Не прочитано / не подтверждено: ")+_results.Count(m=>m.Error!=null)+"\n"+T("Recognized records only; groups may overlap.","Только распознанные записи; группы могут пересекаться.");
-            if(_moduleStatus.Checked)foreach(string planned in _planned.Where(p=>!_results.Any(m=>m.Module==p)))TextLine(_cards,planned+" · "+T("Not read yet","Не прочитан"),13);
-            int shown=0;
             int selection=_moduleFilter.SelectedItemPosition;
             string selected=selection>0&&selection<=_moduleChoices.Length?_moduleChoices[selection-1]:null;
             string query=(_search.Text??"").Trim();
+            var scoped=_results.Where(m=>m.Records!=null&&(selected==null||m.Module==selected)).ToArray();
+            bool Matches(ModuleResult m,Dictionary<string,string> f)=>query.Length==0||(m.Module+" "+m.Variant+" "+Code(f)+" "+Description(m,Code(f),f)+" "+Get(f,"F_ORT_TEXT")+" "+Get(f,"F_SYMPTOM_TEXT")).IndexOf(query,StringComparison.OrdinalIgnoreCase)>=0;
+            var records=scoped.SelectMany(m=>m.Records.Where(f=>Matches(m,f))).Where(f=>Code(f)!="").ToList();
+            bool any=records.Count>0;
+            _counts[0].Text=any?records.Count(f=>State(f)=="35").ToString():"—";
+            _counts[1].Text=any?records.Count(f=>State(f)=="33").ToString():"—";
+            _counts[2].Text=any?records.Count(f=>State(f)!="35"&&State(f)!="33").ToString():"—";
+            _summary.Text=T("Groups read: ","Групп прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length+" · "+T("Failed / unconfirmed: ","Не прочитано / не подтверждено: ")+(_planned.Length-ReadGroupCount)+"\n"+T("Counts reflect module/search filters, before status filter. Groups may overlap.","Счётчики учитывают блок и поиск, до фильтра статуса. Группы могут пересекаться.");
+            if(_moduleStatus.Checked)foreach(string planned in _planned.Where(p=>(selected==null||p==selected)&&!_results.Any(m=>m.Module==p)))TextLine(_cards,planned+" · "+T("Not read yet","Не прочитан"),13);
+            int shown=0;
             foreach(var m in _results)
             {
                 if(selected!=null&&m.Module!=selected)continue;
@@ -181,7 +167,7 @@ namespace BmwDeepObd
                 if(m.Records.Count==0)
                 {if(_moduleStatus.Checked)TextLine(_cards,T("No recognizable records; check raw report.","Распознанных записей нет; проверьте исходный отчёт."),14);continue;}
                 var visible=m.Records.Where(f=>_filter.SelectedItemPosition switch {1=>State(f)=="35",2=>State(f)=="33",3=>true,_=>State(f)!="32"})
-                    .Where(f=>query.Length==0||(m.Module+" "+m.Variant+" "+Code(f)+" "+Description(m,Code(f),f)+" "+Get(f,"F_ORT_TEXT")+" "+Get(f,"F_SYMPTOM_TEXT")).IndexOf(query,StringComparison.OrdinalIgnoreCase)>=0)
+                    .Where(f=>Matches(m,f))
                     .OrderBy(f=>State(f)=="35"?0:State(f)=="33"?1:2).ToList();
                 shown+=visible.Count;
                 if(_moduleStatus.Checked&&visible.Count==0)TextLine(_cards,T("No records matching filter.","Нет записей по фильтру."),14);
@@ -192,10 +178,11 @@ namespace BmwDeepObd
                     card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));card.Background=BavarianUi.Shape(Context,BavarianUi.Surface);
                     var lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)};
                     _cards.AddView(card,lp);
-                    var title=TextLine(card,m.Module+" · "+code,20);title.SetTextColor(BavarianUi.Blue);
+                    var title=TextLine(card,m.Module+" · "+(code==""?T("Unrecognized code","Нераспознанный код"):code),20);title.SetTextColor(BavarianUi.Blue);
                     var status=TextLine(card,Status(state),13);
                     status.SetTextColor(state=="35"?BavarianUi.Danger:state=="33"?BavarianUi.Warning:BavarianUi.Muted);
                     TextLine(card,Description(m,code,f),16).SetTextColor(BavarianUi.White);
+                    TextLine(card,m.ReadAt??"",11).SetTextColor(BavarianUi.Muted);
                     if(Get(f,"F_VERSION")=="2"&&Get(f,"F_WARNUNG_NR")=="49")
                         TextLine(card,T("May request a warning lamp; actual MIL state not measured.","Может вызвать контрольную лампу; фактическое состояние MIL не измерено."),13).SetTextColor(BavarianUi.Warning);
                     var details=new Button(Context){Text=T("Details  ›","Подробнее  ›")};BavarianUi.Style(details);card.AddView(details);
