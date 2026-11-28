@@ -181,7 +181,7 @@ namespace BmwDeepObd
                 return;
             }
             AddText(_injectors?T("Cylinder smooth running","Коррекции цилиндров"):_dashboard?(_group=="d_motor.grp"?"Live Data · DDE":"Live Data · EGS"):AutoMode ? (_group=="d_motor.grp"?T("Engine · DDE","Двигатель · DDE"):T("Transmission · EGS","АКПП · EGS")) : T("Developer mode · USB","Инженерный режим · USB"),24);
-            AddText("READ ONLY / EXPERIMENTAL",14);
+            AddText(T("READ ONLY / EXPERIMENTAL","ТОЛЬКО ЧТЕНИЕ / ТЕСТОВЫЙ РЕЖИМ"),14);
             AddText(AutoMode?T("Park safely, ignition on. Connect one K+DCAN cable. The ECU variant is detected automatically.","Автомобиль должен стоять, зажигание включено. Подключите один K+DCAN. Вариант ECU определяется автоматически."):T("Park safely, ignition on. Select a known ECU variant. Connect only one K+DCAN cable.","Автомобиль должен стоять, зажигание включено. Выберите известный вариант ECU. Подключите один K+DCAN."),15);
             _state=AddText("",15);
             _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
@@ -259,7 +259,7 @@ namespace BmwDeepObd
         {
             try
             {
-                if(_busy){_output.Text="Finish or cancel the request before sharing.";return;}
+                if(_busy){_output.Text=T("Finish or cancel the request before sharing.","Завершите или отмените запрос перед экспортом.");return;}
                 string report;
                 lock(LogLock){report=File.Exists(LogPath)?File.ReadAllText(LogPath):"No diagnostic requests recorded.";}
                 new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("Share diagnostic report")
@@ -306,7 +306,7 @@ namespace BmwDeepObd
                 _state.SetTextColor(_busy?BavarianUi.Blue:!permitted?BavarianUi.Muted:_identified==null?BavarianUi.Warning:BavarianUi.Green);
                 _state.Text=_busy?T("● Reading…","● Чтение…"):!permitted?T("○ Not connected · Home","○ Нет подключения · Главная"):_identified==null?T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен"):T("● ECU identified","● ECU определён");
             }
-            catch(Exception){_state.Text="USB check failed.";ResetIdentity();_cancel?.Cancel();}
+            catch(Exception){_state.Text=T("USB check failed.","Ошибка проверки USB.");ResetIdentity();_cancel?.Cancel();}
             _permission.Enabled=!_busy;
             _permission.Visibility=ViewStates.Gone;
 
@@ -526,7 +526,7 @@ namespace BmwDeepObd
                             .PutString("last_scan_time",DateTime.Now.ToString("dd.MM.yyyy HH:mm",CultureInfo.InvariantCulture))
                             .PutString("last_scan_groups",_faultPanel.ReadGroupCount+"/"+_faultPanel.PlannedGroupCount)
                             .PutString("last_scan_records",_faultPanel.ReadGroupCount==0?"—":_faultPanel.RelevantRecordCount.ToString(CultureInfo.InvariantCulture))
-                            .PutBoolean("last_scan_partial",incomplete||token.IsCancellationRequested).Apply();
+                            .PutBoolean("last_scan_partial",partial).Apply();
                     }
                     else _output.Text+="\n"+T("History could not be saved.","История не сохранена.");
                 }
@@ -740,7 +740,7 @@ namespace BmwDeepObd
             _busy=true;_cancel=new CancellationTokenSource();
             _cancel.CancelAfter(live?TimeSpan.FromMinutes(10):TimeSpan.FromSeconds(45));
             var token=_cancel.Token;
-            Refresh();_output.Text="Waiting for ECU response...";
+            Refresh();_output.Text=T("Waiting for ECU response...","Ожидание ответа ECU...");
             try
             {
                 bool gearbox=name=="d_egs.grp"||name.StartsWith("gs19",StringComparison.Ordinal);
