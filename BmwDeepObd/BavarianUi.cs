@@ -91,14 +91,20 @@ namespace BmwDeepObd
         {
             ApplyWindow(a);
             var root=new LinearLayout(a){Orientation=Orientation.Vertical};root.SetBackgroundColor(Bg);root.SetFitsSystemWindows(true);
+            var header=new LinearLayout(a){Orientation=Orientation.Horizontal};header.SetGravity(GravityFlags.CenterVertical);header.SetPadding(Dp(a,18),Dp(a,4),Dp(a,8),Dp(a,4));header.SetBackgroundColor(Surface);
+            var brand=Text(a,"BAVARIAN",18,true);brand.SetTextColor(Blue);header.AddView(brand,new LinearLayout.LayoutParams(0,-2,1));
+            var settings=new LinearLayout(a){Orientation=Orientation.Horizontal};settings.SetGravity(GravityFlags.Center);settings.Background=TouchSurface(a,selected==4?Selected:Surface,12);
+            settings.AddView(new NavIcon(a,4,selected==4?Blue:Muted),new LinearLayout.LayoutParams(Dp(a,25),Dp(a,25)));
+            settings.ContentDescription=ru?"Настройки":"Settings";settings.Clickable=true;settings.Focusable=true;settings.Click+=(s,e)=>{Feedback(settings);navigate(4);};
+            header.AddView(settings,new LinearLayout.LayoutParams(Dp(a,48),Dp(a,48)));root.AddView(header,new LinearLayout.LayoutParams(-1,-2));
             var scroll=new ScrollView(a){FillViewport=true};
             body=new LinearLayout(a){Orientation=Orientation.Vertical};int pad=Compact(a)?12:18;body.SetPadding(Dp(a,pad),Dp(a,pad),Dp(a,pad),Dp(a,20));
             scroll.AddView(body);root.AddView(scroll,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,0,1));
             var divider=new View(a);divider.SetBackgroundColor(Line);root.AddView(divider,new LinearLayout.LayoutParams(-1,Dp(a,1)));
             var nav=new LinearLayout(a){Orientation=Orientation.Horizontal};nav.SetBackgroundColor(Surface);
-            string[] labels=ru?new[]{"Главная","Диагностика","Данные","Сервис","Настройки"}:new[]{"Home","Diagnostics","Live Data","Service","Settings"};
+            string[] labels=ru?new[]{"Автомобиль","Диагностика","Данные","Сервис"}:new[]{"Vehicle","Diagnostics","Live Data","Service"};
             
-            for(int i=0;i<5;i++)
+            for(int i=0;i<labels.Length;i++)
             {
                 int index=i;
                 var cell=new LinearLayout(a){Orientation=Orientation.Vertical};cell.SetGravity(GravityFlags.Center);cell.SetPadding(0,Dp(a,5),0,Dp(a,5));
@@ -117,7 +123,7 @@ namespace BmwDeepObd
             {
                 base.OnDraw(canvas);canvas.Save();canvas.Scale(Width/24f,Height/24f);_p.SetStyle(Paint.Style.Stroke);_p.StrokeWidth=1.8f;_p.StrokeCap=Paint.Cap.Round;_p.StrokeJoin=Paint.Join.Round;
                 void L(float x,float y,float a,float b)=>canvas.DrawLine(x,y,a,b,_p);
-                if(_kind==0){L(3,10,12,3);L(12,3,21,10);canvas.DrawRect(5,10,19,21,_p);canvas.DrawRect(10,15,14,21,_p);}
+                if(_kind==0){canvas.DrawRoundRect(3,10,21,18,3,3,_p);L(5,10,8,5);L(8,5,16,5);L(16,5,19,10);L(6,18,6,20);L(18,18,18,20);L(6,13,9,13);L(15,13,18,13);}
                 else if(_kind==1){canvas.DrawRoundRect(5,3,19,21,2,2,_p);L(9,8,15,8);L(9,12,15,12);L(9,16,13,16);}
                 else if(_kind==2){canvas.DrawArc(new RectF(3,4,21,22),180,180,false,_p);L(12,13,17,8);canvas.DrawCircle(12,13,1,_p);L(5,17,19,17);}
                 else if(_kind==3){canvas.DrawCircle(12,12,9,_p);L(12,7,12,17);L(7,12,17,12);}
