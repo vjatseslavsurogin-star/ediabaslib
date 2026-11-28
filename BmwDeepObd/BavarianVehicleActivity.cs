@@ -119,10 +119,12 @@ namespace BmwDeepObd
             BavarianUi.ApplyTheme(this);base.OnCreate(savedInstanceState);
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
+            if(requested=="discovery"){CreateDiscovery();return;}
+            _smartScan=requested=="smart_scan";
             if(IsMaintenanceMode(requested)){CreateMaintenance(requested);return;}
             _health=requested=="health";
             _scopedGroups=requested switch {"fault_engine"=>new[]{"d_motor.grp"},"fault_gearbox"=>new[]{"d_egs.grp"},"fault_chassis"=>new[]{"d_dsc.grp"},"fault_climate"=>new[]{"d_klima.grp"},"fault_body"=>new[]{"d_cas.grp","d_kombi.grp","d_lm.grp","d_ccc.grp","d_pdc.grp"},_=>null};
-            _fullScan=requested=="vehicle_scan"||_health;
+            _fullScan=requested=="vehicle_scan"||_health||_smartScan;
             _serviceScreen=requested=="service";
             _faultScreen=requested=="faults"||requested=="history"||_fullScan||_serviceScreen||_scopedGroups!=null;
             _injectors=requested=="injectors";_adaptations=requested=="adaptations";
@@ -145,7 +147,7 @@ namespace BmwDeepObd
             if(_faultScreen)
             {
                 AddText(_health?T("Vehicle health check","Комплексная проверка"):_scopedGroups!=null?string.Join(" / ",_scopedGroups.Select(BavarianScanCatalog.Module)):_serviceScreen?T("Service · DDE / EGS","Сервис · DDE / EGS"):_fullScan?T("Vehicle scan · E60","Диагностика автомобиля · E60"):T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),26);
-                AddText(_health?T("Read-only fault scan and available battery, mileage, CBS and injector records. Not a complete safety or health assessment.","Чтение ошибок и доступных данных АКБ, пробега, CBS и форсунок. Не является полной оценкой исправности или безопасности."):_scopedGroups!=null?T("Read-only fault memory for selected systems.","Чтение памяти ошибок выбранных систем."):_fullScan?T("Experimental scan of 10 ECU groups. Some may be absent or unsupported. Park safely, ignition on.","Экспериментальный опрос 10 групп ECU. Некоторые блоки могут отсутствовать или не поддерживаться. Стоянка, зажигание включено."):T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
+                AddText(_health?T("Read-only fault scan and available battery, mileage, CBS and injector records. Not a complete safety or health assessment.","Чтение ошибок и доступных данных АКБ, пробега, CBS и форсунок. Не является полной оценкой исправности или безопасности."):_scopedGroups!=null?T("Read-only fault memory for selected systems.","Чтение памяти ошибок выбранных систем."):_smartScan?T("VIN-matched discovery profile; fallback to standard scan. Park safely, ignition on.","Профиль по VIN; при отсутствии — обычный опрос. Стоянка, зажигание включено."):_fullScan?T("Standard scan of 10 ECU groups. Some may be absent or unsupported. Park safely, ignition on.","Обычный опрос 10 групп ECU. Некоторые блоки могут отсутствовать или не поддерживаться. Стоянка, зажигание включено."):T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
                 _state=AddText("",15);
                 _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
                 _readDetails=new CheckBox(this){Text=T("Extra fault details · DDE/EGS (test)","Подробности ошибок · DDE/EGS (тест)")};
@@ -283,6 +285,7 @@ namespace BmwDeepObd
         private string Selected=>_group??_variant?.SelectedItem?.ToString();
         private void Refresh()
         {
+            if(_discovery){RefreshDiscovery();return;}
             if(_busyIndicator!=null)_busyIndicator.Visibility=_busy?ViewStates.Visible:ViewStates.Gone;
             if(_maintenanceMode!=null){RefreshMaintenance();return;}
             bool permitted=false;
@@ -406,16 +409,39 @@ namespace BmwDeepObd
             catch(Exception ex){_output.Text=Describe(ex);return;}
             if(device==null||!Ready(manager,device)){Refresh();return;}
             string[] targets=_scopedGroups??(_fullScan?BavarianScanCatalog.AllGroups:new[]{"d_motor.grp","d_egs.grp"});
+            _scanProfileNote="";
             bool details=_readDetails.Checked;
             _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
             _scanIdentities.Clear();_scanDevice=device.DeviceName;
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
-            _cancel.CancelAfter(TimeSpan.FromMinutes(_health?6:_fullScan||(_scopedGroups?.Length??0)>2?3:1));
+            _cancel.CancelAfter(TimeSpan.FromMinutes(_smartScan?8:_health?6:_fullScan||(_scopedGroups?.Length??0)>2?3:1));
             var token=_cancel.Token;
             bool incomplete=false;var extraReports=new List<string>();
             Refresh();_output.Text=T("Reading modules...","Чтение блоков...");
             try
             {
+                if(_smartScan)
+                {
+                    _output.Text=T("Checking current VIN and saved discovery profile…","Проверка VIN и сохранённой конфигурации…");
+                    try
+                    {
+                        using var preflight=CancellationTokenSource.CreateLinkedTokenSource(token);preflight.CancelAfter(TimeSpan.FromSeconds(20));
+                        var cas=await Task.Run(()=>Execute(manager,device.DeviceName,"d_cas.grp",new[]{"IDENT"},null,null,preflight.Token,false,null,null,false,true));
+                        if(!string.IsNullOrEmpty(cas.Vin))
+                        {
+                            var profile=DiscoveryProfile(cas.Vin);
+                            if(profile.GetBoolean("saved",false))
+                            {
+                                targets=BavarianScanCatalog.DiscoveryGroups.Where(g=>profile.GetString("observed_"+g,"")=="responded"||profile.GetString("owner_"+g,"")=="expected"||(BavarianScanCatalog.AllGroups.Contains(g)&&profile.GetString("owner_"+g,"")!="absent")).ToArray();
+                                _scanProfileNote=T("VIN-matched saved profile; not a new discovery.","Профиль подтверждён по VIN; это не новый поиск оборудования.");
+                            }
+                        }
+                    }
+                    catch(Exception ex){Log("SMART PROFILE UNAVAILABLE "+Describe(ex));}
+                    token.ThrowIfCancellationRequested();
+                    if(string.IsNullOrEmpty(_scanProfileNote))_scanProfileNote=T("No matching profile; standard 10-group scan used. Run Full Discovery.","Нет подходящего профиля; обычный опрос 10 групп. Выполните полный поиск.");
+                    _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
+                }
                 foreach(string group in targets)
                 {
                     if(token.IsCancellationRequested)break;
@@ -461,9 +487,10 @@ namespace BmwDeepObd
                 }
                 if(!IsFinishing&&!IsDestroyed&&_visible)
                 {
-                    string reportText=_faultPanel.ExportText()+(_health?"\n\n"+string.Join("\n\n",extraReports):"");
+                    string reportText=(_smartScan?_scanProfileNote+"\n\n":"")+_faultPanel.ExportText()+(_health?"\n\n"+string.Join("\n\n",extraReports):"");
                     bool saved=SaveHistory(_health?T("Vehicle health check","Комплексная проверка"):T("Fault scan","Чтение ошибок"),reportText,incomplete||token.IsCancellationRequested);
                     _output.Text=token.IsCancellationRequested?T("Scan incomplete / cancelled.","Сканирование не завершено / отменено."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
+                    if(_smartScan)_output.Text=_scanProfileNote+"\n"+_output.Text;
                     if(_health)_output.Text=(incomplete||token.IsCancellationRequested?T("Partial check · see unavailable readings.","Неполная проверка · есть недоступные данные."):T("Read-only check completed.","Чтение завершено."))+"\n\n"+string.Join("\n\n",extraReports);
                     if(!saved)_output.Text+="\n"+T("History could not be saved.","История не сохранена.");
                 }
@@ -712,7 +739,7 @@ namespace BmwDeepObd
             public string Text,Identity,Variant;
             public List<Dictionary<string,string>> FaultRows;
             public Dictionary<int,List<Dictionary<string,string>>> ExtraDetails=new Dictionary<int,List<Dictionary<string,string>>>();
-            public string Vin,ExtraNote;
+            public string Vin,ExtraNote,VehicleOrder;
             public double? EngineRpm;
             public int Ok,Failed;
         }
@@ -728,7 +755,7 @@ namespace BmwDeepObd
             if(!string.Equals(Convert.ToHexString(SHA256.HashData(stream)),expectedHash,StringComparison.OrdinalIgnoreCase))
                 throw new IOException("ECU file hash mismatch: "+name);
         }
-        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,string expectedVariant,CancellationToken token,bool live,IProgress<BavarianLiveFrame> progress,string csvPath,bool readDetails=false,bool readVin=false)
+        private RequestResult Execute(UsbManager manager,string deviceName,string name,string[] jobs,string expected,string expectedVariant,CancellationToken token,bool live,IProgress<BavarianLiveFrame> progress,string csvPath,bool readDetails=false,bool readVin=false,bool readFa=false)
         {
             if(!TransportLock.Wait(0))throw new InvalidOperationException("Transport busy");
             try
@@ -860,7 +887,7 @@ namespace BmwDeepObd
                     if(token.WaitHandle.WaitOne(200))break;
                 }
                 }while(live&&!token.IsCancellationRequested);
-                if(!live&&result.FaultRows!=null)
+                if(!live&&(result.FaultRows!=null||readVin||readFa))
                 {
                     try
                     {
@@ -882,7 +909,15 @@ namespace BmwDeepObd
                             if(vins.Length!=1||vins[0]==null||!System.Text.RegularExpressions.Regex.IsMatch(vins[0],@"^[A-HJ-NPR-Z0-9]{17}$"))throw new IOException("VIN absent or invalid");
                             result.Vin=vins[0];Log("OK CAS VIN (not logged)");
                         }
-                        if(readDetails&&(variant=="d50m57e0.prg"||variant=="gs19a.prg"))
+                        if(readFa&&name=="d_cas.grp"&&variant=="cas.prg"&&result.Vin!=null)
+                        {
+                            var fa=ReadAdditional("C_FA_LESEN","");
+                            var status=fa.Where(r=>r.ContainsKey("JOB_STATUS")).Select(r=>r["JOB_STATUS"]).ToArray();
+                            var order=fa.Where(r=>r.ContainsKey("FAHRZEUGAUFTRAG")).Select(r=>r["FAHRZEUGAUFTRAG"]).Distinct().ToArray();
+                            if(status.Length==0||status.Any(x=>x!="OKAY")||!fa.Any(r=>r.TryGetValue("SPEICHER_STATUS",out var occupied)&&occupied=="BELEGT")||order.Length!=1||string.IsNullOrWhiteSpace(order[0]))throw new IOException("FA unavailable or not occupied");
+                            result.VehicleOrder=order[0];
+                        }
+                        if(readDetails&&result.FaultRows!=null&&(variant=="d50m57e0.prg"||variant=="gs19a.prg"))
                         {
                             var codes=BavarianFaultPanel.ParseRecords(result.FaultRows).Where(r=>r.TryGetValue("F_VORHANDEN_NR",out string state)&&(state=="33"||state=="35"))
                                 .Select(r=>r.TryGetValue("F_ORT_NR",out string raw)&&int.TryParse(raw,NumberStyles.Integer,CultureInfo.InvariantCulture,out int code)&&code>0&&code<=65535?code:0)

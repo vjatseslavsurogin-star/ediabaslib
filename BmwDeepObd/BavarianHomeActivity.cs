@@ -48,7 +48,7 @@ namespace BmwDeepObd
             _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4 DEV 1",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
+            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4 DEV 2",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
@@ -94,7 +94,7 @@ namespace BmwDeepObd
                     Section(T("Vehicle systems","Системы автомобиля"));
                     SystemGrid();
                     Section(T("Vehicle checks","Проверка автомобиля"));
-                    FeatureRoute("vehicle_scan");FeatureRoute("mileage");FeatureRoute("ecu_info");
+                    FeatureRoute("discovery");FeatureRoute("smart_scan");FeatureRoute("vehicle_scan");FeatureRoute("mileage");FeatureRoute("ecu_info");
                     FeatureRoute("faults");
                 }
                 else RenderSystem();
@@ -179,7 +179,9 @@ namespace BmwDeepObd
         };
         private (string Id,string Title,string Sub)[] Features()=>new[]{
             ("health",T("Vehicle health check","Комплексная проверка"),T("Read-only combined report","Единый отчёт · только чтение")),
-            ("vehicle_scan",T("Full ECU fault scan","Полное чтение ошибок"),"10 ECU"),
+            ("discovery",T("Full Discovery · equipment","Полный поиск оборудования"),T("24 candidate ECU groups · IDENT only","24 группы-кандидата · только IDENT")),
+            ("smart_scan",T("Smart Scan","Умное сканирование"),T("VIN-matched equipment profile","Профиль оборудования по VIN")),
+            ("vehicle_scan",T("Standard ECU fault scan","Обычное чтение ошибок"),"10 ECU groups"),
             ("faults",T("DDE + EGS fault memory","Ошибки DDE + EGS"),"DDE / EGS"),
             ("fault_engine",T("Engine fault memory","Ошибки двигателя"),"DDE"),
             ("fault_gearbox",T("Transmission fault memory","Ошибки АКПП"),"EGS"),
