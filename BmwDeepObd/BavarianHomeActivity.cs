@@ -134,6 +134,7 @@ namespace BmwDeepObd
                 Route(T("Connection log","Журнал соединения"),T("Local event history","Локальная история"),()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Connection log","Журнал соединения")).SetMessage(BavarianConnection.History(this)).SetPositiveButton("OK",(d,a)=>{}).Show(),false);
                 Route(T("Animations","Анимации"),GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("animations",true)?T("Enabled","Включены"):T("Disabled","Выключены"),()=>{var p=GetSharedPreferences("bavarian_home",FileCreationMode.Private);p.Edit().PutBoolean("animations",!p.GetBoolean("animations",true)).Apply();Render(false);},false);
                 Route(T("Home widgets","Карточки главной"),T("Show or hide saved values","Показать или скрыть данные"),()=>{var p=GetSharedPreferences("bavarian_home",FileCreationMode.Private);p.Edit().PutBoolean("metrics",!p.GetBoolean("metrics",true)).Apply();Render();},false);
+                Route(T("Backup & restore","Резервная копия"),T("Local settings, profile and reports","Локальные настройки, профиль и отчёты"),()=>StartActivity(new Intent(this,typeof(BavarianBackupActivity))),false);
                 Section(T("Engineering","Инженерный раздел"));
                 Route("DDE",T("Identification and raw ECU details","Идентификация и данные блока"),()=>Open("engine"));
                 Route("EGS",T("Identification and raw ECU details","Идентификация и данные блока"),()=>Open("transmission"));
