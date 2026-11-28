@@ -48,7 +48,7 @@ namespace BmwDeepObd
             _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
+            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4.1",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
@@ -72,7 +72,7 @@ namespace BmwDeepObd
                 var vin=prefs.GetString("vin","");
                 car.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(vin)?T("Profile selected manually · VIN not read","Профиль выбран вручную · VIN не считан"):T("Last read VIN: ","Последний считанный VIN: ")+vin,12));
                 _libraryStatus=BavarianUi.Text(this,"",12);car.AddView(_libraryStatus);
-                var check=BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>OpenFeature("health"),true);_gated.Add(check);
+                var check=BavarianUi.Action(_body,T("Diagnostics","Диагностика"),(s,e)=>{_tab=1;_system="";Render();},true);
                 if(GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("metrics",true)){
                 Section(T("Last recorded values","Последние записанные данные"));
                 var faults=LocalFaultSummary(prefs.GetString("DDE_summary","—"));
@@ -80,22 +80,22 @@ namespace BmwDeepObd
                 MetricPair(T("DDE voltage","Напряжение"),LastValue("voltage"),T("Boost · absolute","Наддув · абс."),LastValue("boost"));
                 Text(T("Saved readings, not live. Times shown when available.","Сохранённые данные, не текущие. Время указано при наличии."),11,false,8);
                 }
-                Section(T("Quick actions","Быстрые действия"));
-                RenderFavorites();
-                Route(T("Live dashboard","Приборная панель"),T("Engine · DDE","Двигатель · DDE"),()=>Open("live_engine"));
-                Section(T("Vehicle systems","Системы автомобиля"));SystemGrid();
+                if(Favorites().Any(id=>Features().Any(f=>f.Id==id))){Section(T("Favorites","Избранное"));foreach(var id in Favorites().Distinct())FeatureRoute(id);}
+                Route(T("Edit favorites","Настроить избранное"),T("Optional shortcuts","Дополнительные ярлыки"),EditFavorites,false);
             }
             else if(_tab==1)
             {
                 if(_system=="")
                 {
-                    var health=BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>OpenFeature("health"),true);_gated.Add(health);
+                    Section(T("Fault diagnostics","Диагностика ошибок"));
+                    FeatureRoute("vehicle_scan");FeatureRoute("smart_scan");FeatureRoute("faults");
+                    Section(T("Vehicle equipment","Оборудование автомобиля"));
+                    FeatureRoute("discovery");
+                    Section(T("Individual systems","Отдельные системы"));SystemGrid();
+                    Section(T("Additional checks","Дополнительные проверки"));
+                    FeatureRoute("health");FeatureRoute("mileage");FeatureRoute("ecu_info");
+                    FeatureRoute("history");
                     Route(T("Search functions","Поиск функций"),T("Find by name or ECU","По названию или ECU"),SearchFunctions,false);
-                    Section(T("Vehicle systems","Системы автомобиля"));
-                    SystemGrid();
-                    Section(T("Vehicle checks","Проверка автомобиля"));
-                    FeatureRoute("discovery");FeatureRoute("smart_scan");FeatureRoute("vehicle_scan");FeatureRoute("mileage");FeatureRoute("ecu_info");
-                    FeatureRoute("faults");
                 }
                 else RenderSystem();
             }
@@ -113,7 +113,7 @@ namespace BmwDeepObd
                 Section(T("Replacement procedures","Регистрация замен"));FeatureRoute("battery");
                 Text(T("Write operations remain separate and require confirmation. CBS is read-only.","Операции записи требуют отдельного подтверждения. CBS — только чтение."),13,false,12);
                 Section(T("Reports","Отчёты"));
-                FeatureRoute("history");FeatureRoute("pdf");
+                FeatureRoute("pdf");
             }
             else
             {
@@ -178,11 +178,11 @@ namespace BmwDeepObd
             _=>T("CAS, KOMBI, LM, CCC, PDC","CAS, KOMBI, LM, CCC, PDC")
         };
         private (string Id,string Title,string Sub)[] Features()=>new[]{
-            ("health",T("Vehicle health check","Комплексная проверка"),T("Read-only combined report","Единый отчёт · только чтение")),
-            ("discovery",T("Full Discovery · equipment","Полный поиск оборудования"),T("24 candidate ECU groups · IDENT only","24 группы-кандидата · только IDENT")),
+            ("health",T("Extended vehicle check","Расширенная проверка"),T("10 groups + battery, CBS, mileage, injector records","10 групп + АКБ, CBS, пробег, форсунки")),
+            ("discovery",T("ECU equipment & profile","Оборудование и профиль ECU"),T("Discover 24 groups · VIN · map","Поиск 24 групп · VIN · карта")),
             ("smart_scan",T("Smart Scan","Умное сканирование"),T("VIN-matched equipment profile","Профиль оборудования по VIN")),
-            ("vehicle_scan",T("Standard ECU fault scan","Обычное чтение ошибок"),"10 ECU groups"),
-            ("faults",T("DDE + EGS fault memory","Ошибки DDE + EGS"),"DDE / EGS"),
+            ("vehicle_scan",T("Full fault scan","Полное чтение ошибок"),T("24 candidate ECU groups · read only","24 группы-кандидата · только чтение")),
+            ("faults",T("Quick scan · DDE + EGS","Быстрая проверка · DDE + EGS"),"DDE / EGS"),
             ("fault_engine",T("Engine fault memory","Ошибки двигателя"),"DDE"),
             ("fault_gearbox",T("Transmission fault memory","Ошибки АКПП"),"EGS"),
             ("fault_chassis",T("Chassis fault memory","Ошибки шасси"),"DSC"),
@@ -223,24 +223,18 @@ namespace BmwDeepObd
         private void RenderSystem()
         {
             BavarianUi.Action(_body,T("‹ All systems","‹ Все системы"),(s,e)=>{_system="";_systemPage=0;Render();});
-            var labels=_ru?new[]{"Обзор","Данные","Проверки","Сервис"}:new[]{"Overview","Data","Checks","Service"};
-            var bar=new LinearLayout(this){Orientation=Orientation.Horizontal};
-            _body.AddView(bar,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(10)});
-            for(int i=0;i<4;i++){int index=i;var button=new Button(this){Text=labels[i]};BavarianUi.Style(button,_systemPage==i);button.TextSize=11;button.SetPadding(Dp(2),0,Dp(2),0);button.Click+=(s,e)=>{_systemPage=index;Render();};bar.AddView(button,new LinearLayout.LayoutParams(0,Dp(45),1));}
-            string[] ids=(_system,_systemPage) switch
+            string[] ids=_system switch
             {
-                ("engine",0)=>new[]{"fault_engine"},("engine",1)=>new[]{"live_engine","injectors"},("engine",2)=>new[]{"glow","ima"},("engine",3)=>new[]{"engine","service"},
-                ("gearbox",0)=>new[]{"fault_gearbox"},("gearbox",1)=>new[]{"live_egs"},("gearbox",2)=>new[]{"adaptations"},("gearbox",3)=>new[]{"transmission","service"},
-                ("power",0)=>new[]{"battery_read"},("power",3)=>new[]{"battery"},
-                ("chassis",0)=>new[]{"fault_chassis"},("climate",0)=>new[]{"fault_climate"},
-                ("body",0)=>new[]{"fault_body"},("body",1)=>new[]{"ecu_info"},("body",2)=>new[]{"mileage"},("body",3)=>new[]{"cbs"},
-                _=>Array.Empty<string>()
+                "engine"=>new[]{"fault_engine","live_engine","injectors","glow","ima","engine"},
+                "gearbox"=>new[]{"fault_gearbox","live_egs","adaptations","transmission"},
+                "power"=>new[]{"battery_read","battery"},
+                "chassis"=>new[]{"fault_chassis"},
+                "climate"=>new[]{"fault_climate"},
+                _=>new[]{"fault_body","ecu_info","mileage","cbs"}
             };
-            if(_systemPage==0&&_system=="engine")ModuleSummary("DDE",T("Last saved scan","Последнее сохранённое чтение"));
-            if(_systemPage==0&&_system=="gearbox")ModuleSummary("EGS",T("Last saved scan","Последнее сохранённое чтение"));
-            if(ids.Length==0)Text(T("No additional verified functions for this system yet.","Дополнительные подтверждённые функции этой системы пока отсутствуют."),14,false,16);
+            if(_system=="engine")ModuleSummary("DDE",T("Last saved scan","Последнее сохранённое чтение"));
+            if(_system=="gearbox")ModuleSummary("EGS",T("Last saved scan","Последнее сохранённое чтение"));
             foreach(string id in ids)FeatureRoute(id);
-            if(_systemPage==3)Text(T("Service operations are not part of automatic checks.","Сервисные операции не входят в автоматические проверки."),12,false,12);
         }
         private void SearchFunctions()
         {
@@ -254,16 +248,13 @@ namespace BmwDeepObd
                 }).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
         }
         private string[] Favorites()=>GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetString("favorites","").Split(',',StringSplitOptions.RemoveEmptyEntries);
-        private void RenderFavorites()
+        private void EditFavorites()
         {
-            foreach(var id in Favorites())FeatureRoute(id);
-            BavarianUi.Action(_body,T("Edit favorites","Настроить избранное"),(s,e)=>{
                 var features=Features();var existing=Favorites();var checks=features.Select(f=>existing.Contains(f.Id)).ToArray();
                 new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Favorites","Избранное"))
                     .SetMultiChoiceItems(features.Select(f=>f.Title).ToArray(),checks,(d,a)=>checks[a.Which]=a.IsChecked)
                     .SetPositiveButton(T("Save","Сохранить"),(d,a)=>{GetSharedPreferences("bavarian_home",FileCreationMode.Private).Edit().PutString("favorites",string.Join(",",features.Where((f,i)=>checks[i]).Take(6).Select(f=>f.Id))).Apply();Render();})
                     .SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
-            });
         }
         public override void OnBackPressed()
         {
