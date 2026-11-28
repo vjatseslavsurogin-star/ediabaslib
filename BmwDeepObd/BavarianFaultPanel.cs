@@ -19,7 +19,9 @@ namespace BmwDeepObd
         }
         private readonly bool _ru;
         private readonly List<ModuleResult> _results=new List<ModuleResult>();
-        private readonly Spinner _filter;
+        private readonly Spinner _filter,_moduleFilter;
+        private readonly EditText _search;
+        private string[] _moduleChoices=Array.Empty<string>();
         private readonly CheckBox _moduleStatus;
         private readonly LinearLayout _cards;
         private readonly TextView _summary;
@@ -45,16 +47,26 @@ namespace BmwDeepObd
             AddView(_countRow,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
             _filter=new Spinner(context);var filterAdapter=new ArrayAdapter<string>(context,Android.Resource.Layout.SimpleSpinnerItem,new[]{T("Relevant fault records","Актуальные записи"),T("Active","Активные"),T("Stored / not current","Сохранённые / не активные"),T("All records","Все записи")});
             filterAdapter.SetDropDownViewResource(Android.Resource.Layout.SimpleSpinnerDropDownItem);_filter.Adapter=filterAdapter;AddView(_filter);
+            _moduleFilter=new Spinner(context);AddView(_moduleFilter);UpdateModules();
+            _search=new EditText(context){Hint=T("Search code, name or module","Поиск кода, названия или блока")};_search.SetSingleLine(true);AddView(_search);
             _moduleStatus=new CheckBox(context){Text=T("Show module status and technical details","Показать статус блоков и технические данные")};BavarianUi.Checkbox(_moduleStatus);AddView(_moduleStatus);
             _cards=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_cards);
-            _filter.ItemSelected+=(s,e)=>Render();_moduleStatus.CheckedChange+=(s,e)=>Render();
+            _filter.ItemSelected+=(s,e)=>Render();_moduleFilter.ItemSelected+=(s,e)=>Render();_search.TextChanged+=(s,e)=>Render();_moduleStatus.CheckedChange+=(s,e)=>Render();
         }
         private TextView TextLine(LinearLayout parent,string text,int size)
         {
             var t=BavarianUi.Text(Context,text,size,size>=18);t.SetTextIsSelectable(true);parent.AddView(t);return t;
         }
         private static string Get(Dictionary<string,string> r,string k)=>r.TryGetValue(k,out string value)?value??"":"";
-        public void BeginScan(string[] modules){_planned=modules.ToArray();_results.Clear();Render();}
+        private void UpdateModules()
+        {
+            _moduleChoices=_planned.Distinct(StringComparer.Ordinal).ToArray();
+            var labels=new[]{T("All modules","Все блоки")}.Concat(_moduleChoices).ToArray();
+            var adapter=new ArrayAdapter<string>(Context,Android.Resource.Layout.SimpleSpinnerItem,labels);
+            adapter.SetDropDownViewResource(Android.Resource.Layout.SimpleSpinnerDropDownItem);_moduleFilter.Adapter=adapter;
+        }
+        public void BeginScan(string[] modules){_planned=modules.ToArray();_results.Clear();UpdateModules();Render();}
+        internal string[] UnconfirmedModules()=>_planned.Where(p=>!_results.Any(m=>m.Module==p&&m.Records!=null)).Distinct().ToArray();
         public void AddFailure(string module,string error)
         {_results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Error=error});Render();}
         internal static List<Dictionary<string,string>> ParseRecords(List<Dictionary<string,string>> rows)
@@ -146,8 +158,12 @@ namespace BmwDeepObd
             _summary.Text=T("Groups read: ","Групп прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length+" · "+T("Failed / unconfirmed: ","Не прочитано / не подтверждено: ")+_results.Count(m=>m.Error!=null)+"\n"+T("Recognized records only; groups may overlap.","Только распознанные записи; группы могут пересекаться.");
             if(_moduleStatus.Checked)foreach(string planned in _planned.Where(p=>!_results.Any(m=>m.Module==p)))TextLine(_cards,planned+" · "+T("Not read yet","Не прочитан"),13);
             int shown=0;
+            int selection=_moduleFilter.SelectedItemPosition;
+            string selected=selection>0&&selection<=_moduleChoices.Length?_moduleChoices[selection-1]:null;
+            string query=(_search.Text??"").Trim();
             foreach(var m in _results)
             {
+                if(selected!=null&&m.Module!=selected)continue;
                 if(_moduleStatus.Checked)TextLine(_cards,m.Module+(m.Variant==null?"":" · "+m.Variant),18);
                 if(m.Error!=null){if(_moduleStatus.Checked)TextLine(_cards,T("Read failed: ","Не прочитан: ")+m.Error,14);continue;}
                 if(_moduleStatus.Checked&&!string.IsNullOrEmpty(m.Vin))TextLine(_cards,"VIN: "+m.Vin,15);
@@ -155,6 +171,7 @@ namespace BmwDeepObd
                 if(m.Records.Count==0)
                 {if(_moduleStatus.Checked)TextLine(_cards,T("No recognizable records; check raw report.","Распознанных записей нет; проверьте исходный отчёт."),14);continue;}
                 var visible=m.Records.Where(f=>_filter.SelectedItemPosition switch {1=>State(f)=="35",2=>State(f)=="33",3=>true,_=>State(f)!="32"})
+                    .Where(f=>query.Length==0||(m.Module+" "+m.Variant+" "+Code(f)+" "+Description(m,Code(f),f)+" "+Get(f,"F_ORT_TEXT")+" "+Get(f,"F_SYMPTOM_TEXT")).IndexOf(query,StringComparison.OrdinalIgnoreCase)>=0)
                     .OrderBy(f=>State(f)=="35"?0:State(f)=="33"?1:2).ToList();
                 shown+=visible.Count;
                 if(_moduleStatus.Checked&&visible.Count==0)TextLine(_cards,T("No records matching filter.","Нет записей по фильтру."),14);
