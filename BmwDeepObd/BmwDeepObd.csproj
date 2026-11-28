@@ -6,8 +6,8 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <ApplicationId>org.bavarian.diagnostics</ApplicationId>
-    <ApplicationVersion>630</ApplicationVersion>
-    <ApplicationDisplayVersion>2.4.3</ApplicationDisplayVersion>
+    <ApplicationVersion>631</ApplicationVersion>
+    <ApplicationDisplayVersion>2.4.4</ApplicationDisplayVersion>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
