@@ -9,5 +9,6 @@
     <Compile Include="../../BmwDeepObd/BavarianScanCatalog.cs" Link="BavarianScanCatalog.cs" />
     <Compile Include="../../BmwDeepObd/BavarianScanSnapshot.cs" Link="BavarianScanSnapshot.cs" />
     <Compile Include="../../BmwDeepObd/BavarianVehicleOrder.cs" Link="BavarianVehicleOrder.cs" />
+    <Compile Include="../../BmwDeepObd/BavarianFaultRecords.cs" Link="BavarianFaultRecords.cs" />
   </ItemGroup>
 </Project>
