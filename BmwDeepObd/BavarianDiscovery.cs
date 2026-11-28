@@ -64,7 +64,7 @@ namespace BmwDeepObd
             _discoveryVin=null;_historicalDiscovery=false;_discoveryIdentities.Clear();_discoveryResults.Clear();_discoveryCards.RemoveAllViews();_discoverySummary.Text="";
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource(TimeSpan.FromMinutes(8));var token=_cancel.Token;
             RefreshDiscovery();
-            string fa=null;
+            string fa=null;BavarianVehicleOrder.DecodedOrder decodedFa=null;
             try
             {
                 foreach(var group in BavarianScanCatalog.DiscoveryGroups)
@@ -78,7 +78,7 @@ namespace BmwDeepObd
                         if(token.IsCancellationRequested||!_visible)break;
                         if(string.IsNullOrEmpty(r.Identity))throw new System.IO.IOException("No verified identification");
                         _discoveryResults[group]=("responded",r.Variant);_discoveryIdentities[group]=r.Identity;
-                        if(group=="d_cas.grp"){_discoveryVin=r.Vin;fa=r.VehicleOrder;}
+                        if(group=="d_cas.grp"){_discoveryVin=r.Vin;fa=r.VehicleOrder;decodedFa=r.DecodedFa;}
                         RememberEcuReply(BavarianScanCatalog.Module(group)+" · "+r.Variant);
                     }
                     catch(Exception ex)
@@ -92,21 +92,30 @@ namespace BmwDeepObd
                 }
                 if(!_visible||IsFinishing||IsDestroyed)return;
                 bool complete=!token.IsCancellationRequested&&_discoveryResults.Count==BavarianScanCatalog.DiscoveryGroups.Length;
-                if(!string.IsNullOrEmpty(_discoveryVin))
+                if(BavarianScanSnapshot.ValidVin(_discoveryVin))
                 {
                     var profile=DiscoveryProfile(_discoveryVin);
                     var edit=profile.Edit().PutBoolean("saved",true).PutBoolean("complete",complete).PutString("time",DateTime.Now.ToString("dd.MM.yyyy HH:mm",CultureInfo.InvariantCulture));
                     foreach(var group in BavarianScanCatalog.DiscoveryGroups)
                     {
-                        if(_discoveryResults.TryGetValue(group,out var r))edit.PutString("observed_"+group,r.State).PutString("detail_"+group,r.Detail);
-                        else edit.PutString("observed_"+group,"unconfirmed").PutString("detail_"+group,"Not checked");
+                        if(profile.GetString("observed_"+group,"")=="responded")edit.PutBoolean("ever_"+group,true);
+                        if(_discoveryResults.TryGetValue(group,out var r))
+                        {
+                            edit.PutString("observed_"+group,r.State).PutString("detail_"+group,r.Detail);
+                            if(r.State=="responded")edit.PutBoolean("ever_"+group,true).PutString("responded_at_"+group,DateTimeOffset.Now.ToString("o"));
+                        }
+                        else if(!profile.Contains("observed_"+group))edit.PutString("observed_"+group,"unconfirmed").PutString("detail_"+group,"Not checked");
                     }
-                    if(fa!=null)edit.PutString("raw_fa",fa);
-                    else edit.Remove("raw_fa");
+                    if(fa!=null)
+                    {
+                        edit.PutString("raw_fa",fa).PutString("fa_time",DateTimeOffset.Now.ToString("o"));
+                        if(decodedFa!=null)edit.PutString("decoded_fa",System.Text.Json.JsonSerializer.Serialize(decodedFa));
+                        else edit.Remove("decoded_fa");
+                    }
                     edit.Apply();
                     GetSharedPreferences("bavarian_overview",FileCreationMode.Private).Edit().PutString("vin",_discoveryVin).Apply();
                 }
-                _output.Text=(complete?T("Discovery finished.","Поиск завершён."):T("Partial discovery.","Поиск выполнен частично."))+"\n"+(string.IsNullOrEmpty(_discoveryVin)?T("VIN not confirmed; profile not saved.","VIN не подтверждён; профиль не сохранён."):T("VIN profile saved: ","Профиль сохранён для VIN: ")+_discoveryVin)+"\n"+(fa!=null?T("FA read; raw data only, options not decoded.","FA прочитан; исходные данные, опции не расшифрованы."):T("FA not available.","FA недоступен."));
+                _output.Text=(complete?T("Discovery finished.","Поиск завершён."):T("Partial discovery.","Поиск выполнен частично."))+"\n"+(string.IsNullOrEmpty(_discoveryVin)?T("VIN not confirmed; profile not saved.","VIN не подтверждён; профиль не сохранён."):T("VIN profile saved: ","Профиль сохранён для VIN: ")+_discoveryVin)+"\n"+(decodedFa!=null?T("FA decoded; verify against NCS Expert.","FA расшифрован; проверьте через NCS Expert."):fa!=null?T("FA read; decoder not validated for this response.","FA прочитан; результат декодирования не подтверждён."):T("Current FA unavailable; older data, if saved, is historical.","Текущий FA недоступен; сохранённые данные исторические."));
             }
             finally
             {
@@ -161,6 +170,7 @@ namespace BmwDeepObd
                 card.AddView(BavarianUi.Text(this,BavarianScanCatalog.Module(group),18,true));
                 var state=BavarianUi.Text(this,status,13,true);state.SetTextColor(yes?BavarianUi.Green:unsupported||owner=="expected"||owner=="retrofit"?BavarianUi.Warning:BavarianUi.Muted);card.AddView(state);
                 card.AddView(BavarianUi.Text(this,r.Item2,12));
+                if(!yes&&(profile?.GetBoolean("ever_"+group,false)??false))card.AddView(BavarianUi.Text(this,T("Previously responded: ","Ранее отвечал: ")+profile.GetString("responded_at_"+group,"—"),12));
                 if(profile!=null)
                 {
                     string label=owner=="absent"?T("Owner: not installed","Владелец: отсутствует"):owner=="expected"?T("Owner: expected","Владелец: установлен"):owner=="retrofit"?T("Owner: retrofitted","Владелец: дооснащение"):T("Owner: unknown","Владелец: неизвестно");
@@ -173,9 +183,19 @@ namespace BmwDeepObd
                 var raw=profile.GetString("raw_fa","");
                 if(!string.IsNullOrEmpty(raw))
                 {
-                    _discoveryCards.AddView(BavarianUi.Text(this,T("Factory vehicle order · FA","Заводская комплектация · FA"),18,true));
+                    _discoveryCards.AddView(BavarianUi.Text(this,T("Stored vehicle order · FA","Сохранённая комплектация · FA"),18,true));
+                    _discoveryCards.AddView(BavarianUi.Text(this,T("FA last read: ","FA считан: ")+profile.GetString("fa_time","—"),12));
+                    BavarianVehicleOrder.DecodedOrder decoded=null;
+                    try{var json=profile.GetString("decoded_fa","");if(!string.IsNullOrEmpty(json))decoded=System.Text.Json.JsonSerializer.Deserialize<BavarianVehicleOrder.DecodedOrder>(json);}catch(Exception){}
                     var order=BavarianVehicleOrder.ParseText(raw);
-                    if(order==null)_discoveryCards.AddView(BavarianUi.Text(this,T("FA read; binary / unknown format. Factory options not decoded.","FA считан; двоичный / неизвестный формат. Опции не расшифрованы."),13));
+                    if(decoded!=null&&decoded.Options!=null)
+                    {
+                        _discoveryCards.AddView(BavarianUi.Text(this,decoded.Series+" · "+decoded.Date+" · "+decoded.Type,15,true));
+                        _discoveryCards.AddView(BavarianUi.Text(this,T("Paint / trim: ","Краска / салон: ")+decoded.Paint+" / "+decoded.Trim,13));
+                        _discoveryCards.AddView(BavarianUi.Text(this,T("Decoded SA codes: ","Расшифрованные SA-коды: ")+(decoded.Options.Length==0?"—":string.Join(", ",decoded.Options)),14));
+                        _discoveryCards.AddView(BavarianUi.Text(this,T("Stored order may include retrofits. Validate against independent readout.","Сохранённый FA может включать дооснащение. Сверьте с независимым чтением."),12));
+                    }
+                    else if(order==null)_discoveryCards.AddView(BavarianUi.Text(this,T("FA read; binary / unknown format. Factory options not decoded.","FA считан; двоичный / неизвестный формат. Опции не расшифрованы."),13));
                     else
                     {
                         _discoveryCards.AddView(BavarianUi.Text(this,order.Series+" · "+order.Date+" · "+order.Type,15,true));
