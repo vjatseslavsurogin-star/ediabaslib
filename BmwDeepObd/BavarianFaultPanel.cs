@@ -91,6 +91,7 @@ namespace BmwDeepObd
         }
         public void AddResult(string module,string variant,List<Dictionary<string,string>> rows,Dictionary<int,List<Dictionary<string,string>>> details=null,string vin=null,string note=null)
         {
+            if(rows==null){AddFailure(module,T("No fault response","Ответ памяти ошибок отсутствует"));return;}
             _results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Variant=variant,Records=ParseRecords(rows),Details=details,Vin=vin,ExtraNote=note});Render();
         }
         internal int ReadGroupCount=>_results.Count(m=>m.Records!=null);
@@ -148,7 +149,7 @@ namespace BmwDeepObd
                     case "4521":return T("Boost control deviation — pressure too high","Отклонение регулирования наддува — давление слишком высокое");
                 }
             if(m.Variant=="gs19a.prg"&&code=="5150")return T("Trailer module CAN message missing","Отсутствует CAN-сообщение от модуля прицепа");
-            return Get(f,"F_ORT_TEXT")+"\n"+Get(f,"F_SYMPTOM_TEXT");
+            return T("Original ECU description:","Исходное описание ECU:")+"\n"+Get(f,"F_ORT_TEXT")+"\n"+Get(f,"F_SYMPTOM_TEXT");
         }
         private static string State(Dictionary<string,string> r)=>Get(r,"F_VERSION")=="2"?Get(r,"F_VORHANDEN_NR"):"";
         private string Status(string value)=>value switch {
