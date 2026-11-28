@@ -171,7 +171,19 @@ namespace BmwDeepObd
             if(profile!=null)
             {
                 var raw=profile.GetString("raw_fa","");
-                if(!string.IsNullOrEmpty(raw)){_discoveryCards.AddView(BavarianUi.Text(this,T("Factory order read; binary layout not verified. Do not infer equipment from it yet.","Заводская комплектация считана; формат не подтверждён. Автоматический вывод опций пока недоступен."),13));}if(!string.IsNullOrEmpty(raw))BavarianUi.Action(_discoveryCards,T("Raw vehicle order · FA","Исходный заказ автомобиля · FA"),(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("FA / VO · raw").SetMessage(raw).SetPositiveButton("OK",(a,b)=>{}).Show());
+                if(!string.IsNullOrEmpty(raw))
+                {
+                    _discoveryCards.AddView(BavarianUi.Text(this,T("Factory vehicle order · FA","Заводская комплектация · FA"),18,true));
+                    var order=BavarianVehicleOrder.ParseText(raw);
+                    if(order==null)_discoveryCards.AddView(BavarianUi.Text(this,T("FA read; binary / unknown format. Factory options not decoded.","FA считан; двоичный / неизвестный формат. Опции не расшифрованы."),13));
+                    else
+                    {
+                        _discoveryCards.AddView(BavarianUi.Text(this,order.Series+" · "+order.Date+" · "+order.Type,15,true));
+                        _discoveryCards.AddView(BavarianUi.Text(this,T("Paint / trim: ","Краска / салон: ")+order.Paint+" / "+order.Trim,13));
+                        _discoveryCards.AddView(BavarianUi.Text(this,T("Explicit SA codes: ","Явные SA-коды: ")+(order.Options.Length==0?"—":string.Join(", ",order.Options)),14));
+                        _discoveryCards.AddView(BavarianUi.Text(this,T("Text FA only. Factory options do not prove present-day equipment.","Только текстовый FA. Заводские опции не подтверждают фактическое оборудование."),12));
+                    }
+                }if(!string.IsNullOrEmpty(raw))BavarianUi.Action(_discoveryCards,T("Raw vehicle order · FA","Исходный заказ автомобиля · FA"),(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("FA / VO · raw").SetMessage(raw).SetPositiveButton("OK",(a,b)=>{}).Show());
                 var note=new EditText(this){Hint=T("Aftermarket equipment / notes","Нештатное оборудование / заметки"),Text=profile.GetString("notes","")};_discoveryCards.AddView(note);
                 BavarianUi.Action(_discoveryCards,T("Save vehicle notes","Сохранить заметки"),(s,e)=>{profile.Edit().PutString("notes",note.Text??"").Apply();Toast.MakeText(this,T("Saved","Сохранено"),ToastLength.Short).Show();});
             }
