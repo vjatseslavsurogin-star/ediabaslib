@@ -28,6 +28,7 @@ namespace BmwDeepObd
         private string History=>Path.Combine(FilesDir.AbsolutePath,"bavarian-history");
         private sealed class Backup
         {
+            public Backup(){}
             public int Schema {get;set;}=1;
             public Dictionary<string,bool> Flags {get;set;}=new();
             public Dictionary<string,string> Settings {get;set;}=new();
@@ -136,7 +137,7 @@ namespace BmwDeepObd
                     File.WriteAllText(Path.Combine(History,companion),JsonSerializer.Serialize(snap),Encoding.UTF8);
                 }
             }
-            _state.Text=T("Settings restored. New reports: ","Настройки восстановлены. Новых отчётов: ")+added+"\n"+(restoredProfile?T("Historical profile restored; run discovery to confirm.","Исторический профиль восстановлен; выполните поиск для подтверждения."):T("No profile replaced.","Существующий профиль не заменён."))+"\n"+T("Existing reports kept. Return to Home to apply appearance changes.","Существующие отчёты сохранены. Вернитесь на главную для применения оформления.");
+            _state.Text=T("Settings restored. New reports: ","Настройки восстановлены. Новых отчётов: ")+added+"\n"+(restoredProfile?T("Historical profile restored; run discovery to confirm.","Исторический профиль восстановлен; выполните поиск для подтверждения."):T("No profile replaced.","Существующий профиль не заменён."))+"\n"+T("Existing reports kept. Reopen the app to apply language and appearance changes.","Существующие отчёты сохранены. Перезапустите приложение для применения языка и оформления.");
         }
         protected override void OnActivityResult(int requestCode,Result resultCode,Intent data)
         {
