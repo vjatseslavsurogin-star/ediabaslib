@@ -22,6 +22,8 @@ namespace BmwDeepObd
         private readonly CheckBox _all;
         private readonly LinearLayout _cards;
         private readonly TextView _summary;
+        private readonly TextView[] _counts=new TextView[3];
+        private readonly LinearLayout _countRow;
         private string[] _planned=Array.Empty<string>();
         private string T(string en,string ru)=>_ru?ru:en;
         private int Dp(int n)=>(int)(n*Resources.DisplayMetrics.Density+0.5f);
@@ -30,6 +32,16 @@ namespace BmwDeepObd
             _ru=ru;Orientation=Orientation.Vertical;
             _summary=TextLine(this,T("No scan performed.","Чтение ещё не выполнено."),16);
             _summary.Background=BavarianUi.Shape(context,BavarianUi.Surface);_summary.SetPadding(Dp(14),Dp(12),Dp(14),Dp(12));
+            _countRow=new LinearLayout(context){Orientation=Orientation.Horizontal};
+            string[] labels={T("Active","Активные"),T("Stored","Сохранённые"),T("Other","Прочие")};
+            Color[] colors={BavarianUi.Danger,BavarianUi.Warning,BavarianUi.Muted};
+            for(int i=0;i<3;i++)
+            {
+                var cell=new LinearLayout(context){Orientation=Orientation.Vertical};cell.SetPadding(Dp(8),Dp(10),Dp(8),Dp(10));cell.Background=BavarianUi.Shape(context,BavarianUi.Surface);
+                _counts[i]=BavarianUi.Text(context,"—",24,true);_counts[i].SetTextColor(colors[i]);cell.AddView(_counts[i]);
+                cell.AddView(BavarianUi.Text(context,labels[i],11));_countRow.AddView(cell,new LinearLayout.LayoutParams(0,-2,1){RightMargin=Dp(4)});
+            }
+            AddView(_countRow,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
             _all=new CheckBox(context){Text=T("Show all records (including not occurred)","Все записи (включая не возникавшие)")};BavarianUi.Checkbox(_all);
             AddView(_all);
             _cards=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_cards);
@@ -122,10 +134,11 @@ namespace BmwDeepObd
         {
             _cards.RemoveAllViews();
             var records=_results.Where(m=>m.Records!=null).SelectMany(m=>m.Records).ToList();
-            _summary.Text=T("Active: ","Активные: ")+records.Count(f=>State(f)=="35")+
-                T(" · Stored: "," · Сохранённые: ")+records.Count(f=>State(f)=="33")+
-                T(" · Other: "," · Остальные: ")+records.Count(f=>State(f)!="35"&&State(f)!="33")+
-                "\n"+T("Modules read: ","Блоков прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length;
+            bool any=_results.Any(m=>m.Records!=null&&m.Records.Count>0);
+            _counts[0].Text=any?records.Count(f=>State(f)=="35").ToString():"—";
+            _counts[1].Text=any?records.Count(f=>State(f)=="33").ToString():"—";
+            _counts[2].Text=any?records.Count(f=>State(f)!="35"&&State(f)!="33").ToString():"—";
+            _summary.Text=T("Modules read: ","Блоков прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length+" · "+T("Recognized records only","Только распознанные записи");
             foreach(string planned in _planned.Where(p=>!_results.Any(m=>m.Module==p)))TextLine(_cards,planned+" · "+T("Not read yet","Не прочитан"),13);
             foreach(var m in _results)
             {
@@ -152,21 +165,23 @@ namespace BmwDeepObd
                     if(Get(f,"F_VERSION")=="2"&&Get(f,"F_WARNUNG_NR")=="49")
                         TextLine(card,T("May request a warning lamp; actual MIL state not measured.","Может вызвать контрольную лампу; фактическое состояние MIL не измерено."),13).SetTextColor(BavarianUi.Warning);
                     var details=new Button(Context){Text=T("Details  ›","Подробнее  ›")};BavarianUi.Style(details);card.AddView(details);
+                    var expanded=new LinearLayout(Context){Orientation=Orientation.Vertical,Visibility=ViewStates.Gone};card.AddView(expanded);
                     string original=string.Join("\n",f.Select(k=>k.Key+": "+k.Value));
-                    if(state=="")TextLine(card,Get(f,"F_VORHANDEN_TEXT"),13).SetTextColor(BavarianUi.Muted);
+                    if(state=="")TextLine(expanded,Get(f,"F_VORHANDEN_TEXT"),13).SetTextColor(BavarianUi.Muted);
                     if(int.TryParse(Get(f,"F_ORT_NR"),NumberStyles.Integer,CultureInfo.InvariantCulture,out int codeNum)&&m.Details!=null&&m.Details.TryGetValue(codeNum,out var more)&&more.Count==1)
                     {
                         var d=more[0];
                         if(!string.IsNullOrWhiteSpace(Get(d,"F_PCODE_STRING"))&&Get(d,"F_PCODE_STRING")!="--"&&Get(d,"F_PCODE_STRING")!="??")
-                            TextLine(card,Get(d,"F_PCODE_STRING")+" · "+Get(d,"F_PCODE_TEXT"),14).SetTextColor(BavarianUi.White);
+                            TextLine(expanded,Get(d,"F_PCODE_STRING")+" · "+Get(d,"F_PCODE_TEXT"),14).SetTextColor(BavarianUi.White);
                         if(int.TryParse(Get(d,"F_HFK"),out int count)&&count>=0)
-                            TextLine(card,T("Occurrence count: ","Счётчик возникновения: ")+count,14).SetTextColor(BavarianUi.White);
+                            TextLine(expanded,T("Occurrence count: ","Счётчик возникновения: ")+count,14).SetTextColor(BavarianUi.White);
                         if(long.TryParse(Get(d,"F_UW_KM"),out long km)&&km>=0)
-                            TextLine(card,T("Stored mileage: ","Пробег в памяти: ")+km+" km",14).SetTextColor(BavarianUi.White);
+                            TextLine(expanded,T("Stored mileage: ","Пробег в памяти: ")+km+" km",14).SetTextColor(BavarianUi.White);
                         original+="\n\nFS_LESEN_DETAIL\n"+string.Join("\n",d.Select(k=>k.Key+": "+k.Value));
                     }
-                    details.Click+=(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(Context).SetTitle(m.Module+" · "+code)
-                        .SetMessage(original).SetPositiveButton("OK",(d,a)=>{}).Show();
+                    BavarianUi.Action(expanded,T("Raw ECU data","Исходные данные ECU"),(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(Context).SetTitle(m.Module+" · "+code)
+                        .SetMessage(original).SetPositiveButton("OK",(d,a)=>{}).Show());
+                    details.Click+=(s,e)=>{BavarianUi.Feedback(details);bool open=expanded.Visibility!=ViewStates.Visible;expanded.Visibility=open?ViewStates.Visible:ViewStates.Gone;details.Text=open?T("Hide details","Скрыть подробности"):T("Details  ›","Подробнее  ›");};
                 }
             }
         }

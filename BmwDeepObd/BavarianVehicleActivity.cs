@@ -140,6 +140,8 @@ namespace BmwDeepObd
                 if(_busy){_output.Text=T("Stop the current request before navigating.","Сначала остановите текущий запрос.");return;}
                 BavarianUi.NavigateHome(this,i);
             },out _body);
+            _busyIndicator=new ProgressBar(this,null,Android.Resource.Attribute.ProgressBarStyleHorizontal){Indeterminate=true,Visibility=ViewStates.Gone};
+            _busyIndicator.IndeterminateTintList=Android.Content.Res.ColorStateList.ValueOf(BavarianUi.Blue);_body.AddView(_busyIndicator,new LinearLayout.LayoutParams(-1,Dp(4)));
             if(_faultScreen)
             {
                 AddText(_health?T("Vehicle health check","Комплексная проверка"):_scopedGroups!=null?string.Join(" / ",_scopedGroups.Select(BavarianScanCatalog.Module)):_serviceScreen?T("Service · DDE / EGS","Сервис · DDE / EGS"):_fullScan?T("Vehicle scan · E60","Диагностика автомобиля · E60"):T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),26);
@@ -260,6 +262,7 @@ namespace BmwDeepObd
             }
             catch(Exception ex){_output.Text=BavarianLanguage.Error("Report sharing failed",ex);}
         }
+        private ProgressBar _busyIndicator;
         private TextView AddText(string text,int size)
         {
             var v=BavarianUi.Text(this,text,size,size>=24);
@@ -277,6 +280,7 @@ namespace BmwDeepObd
         private string Selected=>_group??_variant?.SelectedItem?.ToString();
         private void Refresh()
         {
+            if(_busyIndicator!=null)_busyIndicator.Visibility=_busy?ViewStates.Visible:ViewStates.Gone;
             if(_maintenanceMode!=null){RefreshMaintenance();return;}
             bool permitted=false;
             try
@@ -286,6 +290,7 @@ namespace BmwDeepObd
                 if(device==null || device.DeviceName!=_deviceName || !permitted){ResetIdentity();}
                 if(_busy&&(!permitted||device?.DeviceName!=_activeDevice))_cancel?.Cancel();
                 if(_faultScreen&&(!permitted||(_scanDevice!=null&&device?.DeviceName!=_scanDevice)))_scanIdentities.Clear();
+                _state.SetTextColor(_busy?BavarianUi.Blue:!permitted?BavarianUi.Muted:_identified==null?BavarianUi.Warning:BavarianUi.Green);
                 _state.Text=_busy?T("● Reading…","● Чтение…"):!permitted?T("○ Not connected · Home","○ Нет подключения · Главная"):_identified==null?T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен"):T("● ECU identified","● ECU определён");
             }
             catch(Exception){_state.Text="USB check failed.";ResetIdentity();_cancel?.Cancel();}

@@ -83,6 +83,7 @@ namespace BmwDeepObd
                 Section(T("Quick actions","Быстрые действия"));
                 RenderFavorites();
                 Route(T("Live dashboard","Приборная панель"),T("Engine · DDE","Двигатель · DDE"),()=>Open("live_engine"));
+                Section(T("Vehicle systems","Системы автомобиля"));SystemGrid();
             }
             else if(_tab==1)
             {
@@ -91,8 +92,7 @@ namespace BmwDeepObd
                     var health=BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>OpenFeature("health"),true);_gated.Add(health);
                     Route(T("Search functions","Поиск функций"),T("Find by name or ECU","По названию или ECU"),SearchFunctions,false);
                     Section(T("Vehicle systems","Системы автомобиля"));
-                    foreach(var id in new[]{"engine","gearbox","power","chassis","climate","body"})
-                        Route(SystemName(id),SystemSubtitle(id),()=>{_system=id;_systemPage=0;Render();},false);
+                    SystemGrid();
                     Section(T("Vehicle checks","Проверка автомобиля"));
                     FeatureRoute("vehicle_scan");FeatureRoute("mileage");FeatureRoute("ecu_info");
                     FeatureRoute("faults");
@@ -137,6 +137,24 @@ namespace BmwDeepObd
                 Text("Based on Deep OBD / EdiabasLib · GPL-3.0",12,false,20);
             }
             RefreshStatus();UpdateLibrary();if(animate)BavarianUi.Enter(_body);
+        }
+        private void SystemGrid()
+        {
+            string[] ids={"engine","gearbox","power","chassis","climate","body"};
+            int columns=Resources.Configuration.Orientation==Android.Content.Res.Orientation.Landscape?3:2;
+            LinearLayout row=null;
+            for(int i=0;i<ids.Length;i++)
+            {
+                string id=ids[i];
+                if(i%columns==0){row=new LinearLayout(this){Orientation=Orientation.Horizontal};_body.AddView(row,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});}
+                var card=new LinearLayout(this){Orientation=Orientation.Vertical};
+                card.SetPadding(Dp(12),Dp(12),Dp(12),Dp(12));card.Background=BavarianUi.TouchSurface(this,BavarianUi.Surface,14);
+                var code=BavarianUi.Text(this,id switch {"engine"=>"DDE","gearbox"=>"EGS","power"=>"IBS","chassis"=>"DSC","climate"=>"IHKA",_=>"CAS / LM"},13,true);code.SetTextColor(BavarianUi.Blue);card.AddView(code);
+                var title=BavarianUi.Text(this,SystemName(id),15,true);title.SetMinLines(2);card.AddView(title);
+                card.Clickable=true;card.Focusable=true;card.ContentDescription=SystemName(id)+". "+SystemSubtitle(id);
+                card.Click+=(s,e)=>{BavarianUi.Feedback(card);_tab=1;_system=id;_systemPage=0;Render();};
+                row.AddView(card,new LinearLayout.LayoutParams(0,-2,1){RightMargin=Dp(4)});
+            }
         }
         private void AppearanceToggle(string key,string label,bool fallback)
         {

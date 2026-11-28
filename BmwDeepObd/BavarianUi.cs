@@ -73,7 +73,7 @@ namespace BmwDeepObd
             var c=b.Context;b.SetAllCaps(false);b.TextSize=15;b.SetTextColor(White);
             var states=new StateListDrawable();
             states.AddState(new[]{-Android.Resource.Attribute.StateEnabled},Shape(c,Line,10));
-            states.AddState(new[]{Android.Resource.Attribute.StatePressed},Shape(c,Selected,10));
+            states.AddState(new[]{Android.Resource.Attribute.StatePressed},Shape(c,primary?Color.ParseColor("#E86A16"):Selected,10));
             states.AddState(Array.Empty<int>(),Shape(c,primary?Primary:Surface,10));
             b.Background=new RippleDrawable(ColorStateList.ValueOf(Color.ParseColor("#28FF781F")),states,Shape(c,Color.White,10));b.SetPadding(Dp(c,14),Dp(c,10),Dp(c,14),Dp(c,10));b.SetMinHeight(Dp(c,46));
             b.SetTextColor(new ColorStateList(new[]{new[]{-Android.Resource.Attribute.StateEnabled},Array.Empty<int>()},new[]{Muted.ToArgb(),(primary?OnPrimary:White).ToArgb()}));
