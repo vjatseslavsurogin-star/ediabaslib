@@ -96,6 +96,15 @@ namespace BmwDeepObd
         internal int ReadGroupCount=>_results.Count(m=>m.Records!=null);
         internal int PlannedGroupCount=>_planned.Length;
         internal int RelevantRecordCount=>_results.Where(m=>m.Records!=null).Sum(m=>m.Records.Count(r=>State(r)!="32"));
+        internal BavarianScanSnapshot Capture(string vin,bool partial)=>new BavarianScanSnapshot
+        {
+            Vin=vin,Time=DateTimeOffset.Now.ToString("o",CultureInfo.InvariantCulture),Partial=partial,
+            Groups=_planned.Distinct().Select(module=>{
+                var m=_results.FirstOrDefault(x=>x.Module==module);
+                return new BavarianScanSnapshot.ScanGroup{Module=module,Variant=m?.Variant,Read=m?.Records!=null,
+                    Codes=m?.Records?.Where(r=>State(r)!="32").Select(Code).Where(c=>!string.IsNullOrWhiteSpace(c)).Distinct().ToArray()??Array.Empty<string>()};
+            }).ToArray()
+        };
         public string ExportText()
         {
             var lines=new List<string>();
