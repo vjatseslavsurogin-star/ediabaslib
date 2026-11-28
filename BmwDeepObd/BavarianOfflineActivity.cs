@@ -31,10 +31,14 @@ namespace BmwDeepObd
         protected override void OnCreate(Bundle saved)
         {
             BavarianUi.ApplyTheme(this);base.OnCreate(saved);SupportActionBar?.Hide();_ru=BavarianLanguage.IsRussian(this);_reports=Intent?.GetBooleanExtra("reports",false)??false;
-            BavarianUi.Shell(this,_reports?3:2,_ru,i=>BavarianUi.NavigateHome(this,i),out _body);
-            _body.AddView(BavarianUi.Text(this,_reports?T("PDF reports","Отчёты PDF"):T("Log viewer","Просмотр логов"),28,true));
+            BavarianUi.Shell(this,_reports?1:2,_ru,i=>BavarianUi.NavigateHome(this,i),out _body);
+            _body.AddView(BavarianUi.Text(this,_reports?T("Reports & comparison","Отчёты и сравнение"):T("Log viewer","Просмотр логов"),28,true));
             _body.AddView(BavarianUi.Text(this,_reports?T("Local saved reports. May contain identifiers. Export only to a trusted location.","Локальные отчёты. Могут содержать идентификаторы. Сохраняйте в доверенное место."):T("ECU CSV only. Compare the same variant, parameter and unit over elapsed time; driving conditions may differ.","Только ECU CSV. Сравнение одного варианта, параметра и единицы по времени; условия поездок могут отличаться."),13));
-            if(_reports)BavarianUi.Action(_body,T("Choose report","Выбрать отчёт"),(s,e)=>ChooseReport(),true);
+            if(_reports)
+            {
+                BavarianUi.Action(_body,T("Choose report","Выбрать отчёт"),(s,e)=>ChooseReport(),true);
+                BavarianUi.Action(_body,T("Compare two scans","Сравнить две диагностики"),(s,e)=>ChooseComparison());
+            }
             else
             {
                 BavarianUi.Action(_body,T("Choose session A","Выбрать сессию A"),(s,e)=>ChooseLog(false),true);
@@ -129,6 +133,36 @@ namespace BmwDeepObd
                 Draw(_a,BavarianUi.Blue);Draw(_b,BavarianUi.Compare);
             }
         }
+        private void ChooseComparison()
+        {
+            if(_loading)return;
+            try
+            {
+                var dir=Path.Combine(FilesDir.AbsolutePath,"bavarian-history");
+                var files=Directory.Exists(dir)?Directory.GetFiles(dir,"*.scan.json").OrderBy(x=>x,StringComparer.Ordinal).ToArray():Array.Empty<string>();
+                BavarianScanSnapshot Read(string file)
+                {
+                    if(new FileInfo(file).Length>512*1024)throw new IOException("Snapshot too large");
+                    return System.Text.Json.JsonSerializer.Deserialize<BavarianScanSnapshot>(File.ReadAllText(file));
+                }
+                var scans=new List<BavarianScanSnapshot>();
+                foreach(var file in files)try{var x=Read(file);if(x?.Schema==1&&BavarianScanSnapshot.ValidVin(x.Vin))scans.Add(x);}catch(Exception){}
+                if(scans.Count<2){_state.Text=T("Two new scans with a verified VIN are needed. Include CAS in the scan.","Нужны две новые проверки с подтверждённым VIN. Включите CAS в сканирование.");return;}
+                string Label(BavarianScanSnapshot x)=>x.Time+" · "+x.Vin+(x.Partial?T(" · partial"," · частично"):"");
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Choose earlier scan","Выберите раннюю проверку")).SetItems(scans.Select(Label).ToArray(),(d,a)=>{
+                    var first=scans[a.Which];var later=scans.Skip(a.Which+1).Where(x=>x.Vin==first.Vin).ToArray();
+                    if(later.Length==0){_state.Text=T("No later scan with the same verified VIN.","Нет поздней проверки с тем же подтверждённым VIN.");return;}
+                    new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Choose later scan","Выберите позднюю проверку")).SetItems(later.Select(Label).ToArray(),(dd,aa)=>{
+                        try{_report=string.Join("\n",BavarianScanSnapshot.Compare(first,later[aa.Which],_ru));RenderReport();}catch(Exception ex){_state.Text=ex.Message;}
+                    }).Show();
+                }).Show();
+            }catch(Exception ex){_state.Text=ex.Message;}
+        }
+        private void RenderReport()
+        {
+            _content.RemoveAllViews();_content.AddView(BavarianUi.Text(this,_report,13));
+            BavarianUi.Action(_content,T("Save PDF","Сохранить PDF"),(s,e)=>{var intent=new Intent(Intent.ActionCreateDocument);intent.AddCategory(Intent.CategoryOpenable);intent.SetType("application/pdf");intent.PutExtra(Intent.ExtraTitle,"Bavarian-report.pdf");StartActivityForResult(intent,725);},true);
+        }
         private void ChooseReport()
         {
             try
@@ -139,8 +173,7 @@ namespace BmwDeepObd
                     try
                     {
                         if(new FileInfo(files[a.Which]).Length>512*1024)throw new IOException("Report exceeds PDF export limit");
-                        _report=File.ReadAllText(files[a.Which]);_content.RemoveAllViews();_content.AddView(BavarianUi.Text(this,_report,13));
-                        BavarianUi.Action(_content,T("Save PDF","Сохранить PDF"),(s,e)=>{var intent=new Intent(Intent.ActionCreateDocument);intent.AddCategory(Intent.CategoryOpenable);intent.SetType("application/pdf");intent.PutExtra(Intent.ExtraTitle,"Bavarian-report.pdf");StartActivityForResult(intent,725);},true);
+                        _report=File.ReadAllText(files[a.Which]);RenderReport();
                     }catch(Exception ex){_state.Text=ex.Message;}
                 }).Show();
             }catch(Exception ex){_state.Text=ex.Message;}
