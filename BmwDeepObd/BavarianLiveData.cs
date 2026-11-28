@@ -373,23 +373,48 @@ namespace BmwDeepObd
         private StreamWriter _csv;
         private string _file;
         private TextView _status;
+        private bool _demoRu;
+        private string DT(string en,string ru)=>_demoRu?ru:en;
         protected override void OnCreate(Bundle savedInstanceState)
         {
             BavarianUi.ApplyTheme(this);base.OnCreate(savedInstanceState);
             SupportActionBar?.Hide();
-            BavarianUi.Shell(this,2,BavarianLanguage.IsRussian(this),i=>{StopDemo();BavarianUi.NavigateHome(this,i);},out var body);
-            body.AddView(BavarianUi.Text(this,"DEMO · SIMULATED DATA · NO VEHICLE CONNECTION",18,true));
-            var start=new Button(this){Text="Start demo + CSV"};BavarianUi.Style(start,true);body.AddView(start);start.Click+=(s,e)=>StartDemo();
-            var stop=new Button(this){Text="Stop demo"};BavarianUi.Style(stop);body.AddView(stop);stop.Click+=(s,e)=>StopDemo();
-            var export=new Button(this){Text="Export demo CSV"};BavarianUi.Style(export);body.AddView(export);export.Click+=(s,e)=>{
+            _demoRu=BavarianLanguage.IsRussian(this);
+            BavarianUi.Shell(this,2,_demoRu,i=>{StopDemo();BavarianUi.NavigateHome(this,i);},out var body);
+            body.AddView(BavarianUi.Text(this,DT("DEMO · SIMULATED DATA · NO VEHICLE CONNECTION","DEMO · ИМИТАЦИЯ · НЕТ СВЯЗИ С АВТО"),18,true));
+            var start=new Button(this){Text=DT("Start demo + CSV","Запустить DEMO + CSV")};BavarianUi.Style(start,true);body.AddView(start);start.Click+=(s,e)=>StartDemo();
+            var stop=new Button(this){Text=DT("Stop demo","Остановить DEMO")};BavarianUi.Style(stop);body.AddView(stop);stop.Click+=(s,e)=>StopDemo();
+            var export=new Button(this){Text=DT("Export demo CSV","Экспорт DEMO CSV")};BavarianUi.Style(export);body.AddView(export);export.Click+=(s,e)=>{
                 StopDemo();
                 if(_file==null||!File.Exists(_file))return;
                 var intent=new Intent(Intent.ActionCreateDocument);intent.AddCategory(Intent.CategoryOpenable);intent.SetType("text/csv");
                 intent.PutExtra(Intent.ExtraTitle,"bavarian-DEMO.csv");StartActivityForResult(intent,612);
             };
             _status=BavarianUi.Text(this,"",14);body.AddView(_status);
-            _panel=new BavarianLivePanel(this,false);body.AddView(_panel);
+            _panel=new BavarianLivePanel(this,_demoRu);body.AddView(_panel);
+            BavarianUi.Action(body,DT("Fault scan simulator","Имитация сканирования ошибок"),(s,e)=>{StopDemo();ShowFaultDemo();});
             _handler=new Handler(Looper.MainLooper);_tick=new Java.Lang.Runnable(Tick);
+        }
+        private void ShowFaultDemo()
+        {
+            var labels=new[]{DT("Mixed fault records","Разные статусы ошибок"),DT("Partial scan / timeout","Частичный опрос / тайм-аут"),DT("Connection lost / cancelled","Связь потеряна / отменено")};
+            new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("DEMO").SetItems(labels,(d,a)=>{
+                var panel=new LinearLayout(this){Orientation=Orientation.Vertical};
+                panel.AddView(BavarianUi.Text(this,DT("SIMULATED SCAN · no ECU jobs, no saved vehicle history","ИМИТАЦИЯ · без запросов ECU и записи в историю"),15,true));
+                var faults=new BavarianFaultPanel(this,_demoRu);panel.AddView(faults);faults.BeginScan(new[]{"DDE","EGS","CAS"});
+                List<Dictionary<string,string>> Rows()=>new()
+                {
+                    new(){["F_VERSION"]="2",["F_HEX_CODE"]="450100",["F_ORT_TEXT"]="DEMO EGR",["F_VORHANDEN_NR"]="33"},
+                    new(){["F_VERSION"]="2",["F_HEX_CODE"]="452100",["F_ORT_TEXT"]="DEMO boost",["F_VORHANDEN_NR"]="35"},
+                    new(){["F_VERSION"]="2",["F_HEX_CODE"]="458700",["F_ORT_TEXT"]="DEMO fuel filter",["F_VORHANDEN_NR"]="32"}
+                };
+                faults.AddResult("DDE","d50m57e0.prg",Rows());
+                if(a.Which==0){faults.AddResult("EGS","gs19a.prg",new());faults.AddResult("CAS","cas.prg",new());}
+                else if(a.Which==1){faults.AddFailure("EGS",DT("Simulated timeout","Имитация тайм-аута"));faults.AddResult("CAS","cas.prg",new());}
+                else faults.AddFailure("EGS",DT("Simulated adapter disconnect","Имитация отключения адаптера"));
+                var scroll=new ScrollView(this);scroll.AddView(panel);
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("DEMO · "+labels[a.Which]).SetView(scroll).SetPositiveButton(DT("Close","Закрыть"),(dd,aa)=>{}).Show();
+            }).Show();
         }
         private void StartDemo()
         {
@@ -398,7 +423,7 @@ namespace BmwDeepObd
             {
                 _file=Path.Combine(FilesDir.AbsolutePath,"bavarian-DEMO.csv");
                 _csv=new StreamWriter(_file,false,new UTF8Encoding(false));_csv.WriteLine(BavarianLiveFrame.CsvHeader);
-                _n=0;_panel.ResetHistory();_running=true;_status.Text="DEMO running";Tick();
+                _n=0;_panel.ResetHistory();_running=true;_status.Text=DT("DEMO running","DEMO запущен");Tick();
             }
             catch(Exception ex){StopDemo();_status.Text=ex.GetType().Name;}
         }
@@ -419,13 +444,13 @@ namespace BmwDeepObd
             }
             catch(Exception ex){StopDemo();_status.Text=ex.GetType().Name;}
         }
-        private void StopDemo(){_running=false;if(_tick!=null)_handler.RemoveCallbacks(_tick);_csv?.Dispose();_csv=null;_panel?.MarkStopped();if(_status!=null)_status.Text="DEMO stopped";}
+        private void StopDemo(){_running=false;if(_tick!=null)_handler.RemoveCallbacks(_tick);_csv?.Dispose();_csv=null;_panel?.MarkStopped();if(_status!=null)_status.Text=DT("DEMO stopped","DEMO остановлен");}
         protected override void OnStop(){StopDemo();base.OnStop();}
         protected override void OnActivityResult(int requestCode,Result resultCode,Intent data)
         {
             base.OnActivityResult(requestCode,resultCode,data);
             if(requestCode!=612||resultCode!=Result.Ok||data?.Data==null||_file==null)return;
-            try{using var input=File.OpenRead(_file);using var output=ContentResolver.OpenOutputStream(data.Data,"wt");if(output==null)throw new IOException();input.CopyTo(output);_status.Text="DEMO CSV exported";}
+            try{using var input=File.OpenRead(_file);using var output=ContentResolver.OpenOutputStream(data.Data,"wt");if(output==null)throw new IOException();input.CopyTo(output);_status.Text=DT("DEMO CSV exported","DEMO CSV сохранён");}
             catch(Exception ex){_status.Text=ex.GetType().Name;}
         }
     }
