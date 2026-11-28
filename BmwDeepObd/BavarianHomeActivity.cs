@@ -48,7 +48,7 @@ namespace BmwDeepObd
             _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4 DEV 3",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
+            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
