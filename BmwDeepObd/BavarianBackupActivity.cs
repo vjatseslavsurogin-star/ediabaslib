@@ -57,8 +57,8 @@ namespace BmwDeepObd
         }
         private IEnumerable<string> ProfileKeys()
         {
-            foreach(var key in new[]{"time","notes","raw_fa"})yield return key;
-            foreach(var g in BavarianScanCatalog.DiscoveryGroups)foreach(var p in new[]{"observed_","detail_","owner_"})yield return p+g;
+            foreach(var key in new[]{"time","notes","raw_fa","fa_time"})yield return key;
+            foreach(var g in BavarianScanCatalog.DiscoveryGroups)foreach(var p in new[]{"observed_","detail_","owner_","responded_at_"})yield return p+g;
         }
         private Backup Capture()
         {
@@ -91,14 +91,14 @@ namespace BmwDeepObd
         {
             if(b==null||b.Schema!=1||b.Flags==null||b.Settings==null||b.Dashboards==null||b.Profile==null||b.History==null||b.History.Count>100)throw new IOException("Invalid backup schema");
             if(b.Vin!=null&&!BavarianScanSnapshot.ValidVin(b.Vin))throw new IOException("Invalid backup VIN");
-            if(b.Profile.Any(p=>p.Value==null||p.Value.Length>16384)||b.Settings.Any(p=>p.Value==null||p.Value.Length>4096)||b.Dashboards.Any(p=>p.Value==null||p.Value.Length>4096))throw new IOException("Invalid settings length");
+            if(b.Profile.Count>150||b.Settings.Count>16||b.Flags.Count>16||b.Dashboards.Count>4||b.Profile.Any(p=>p.Value==null||p.Value.Length>16384)||b.Settings.Any(p=>p.Value==null||p.Value.Length>4096)||b.Dashboards.Any(p=>p.Value==null||p.Value.Length>4096))throw new IOException("Invalid settings length");
             foreach(var p in b.History)
             {
                 if(!HistoryName.IsMatch(p.Key)||p.Value==null||Encoding.UTF8.GetByteCount(p.Value)>RecordLimit)throw new IOException("Invalid backup history entry");
                 if(p.Key.EndsWith(".scan.json",StringComparison.Ordinal))
                 {
                     var x=JsonSerializer.Deserialize<BavarianScanSnapshot>(p.Value);
-                    if(x==null||x.Schema!=1||x.Groups==null||x.Groups.Length>24||x.Groups.Any(g=>g==null||string.IsNullOrEmpty(g.Module)||g.Codes==null||g.Codes.Length>4096)||x.Groups.Select(g=>g.Module).Distinct().Count()!=x.Groups.Length)throw new IOException("Invalid scan snapshot");
+                    if(x==null||x.Schema!=1||x.Groups==null||x.Groups.Length>24||x.Groups.Any(g=>g==null||string.IsNullOrEmpty(g.Module)||g.Codes==null||g.Codes.Length>4096||g.Codes.Any(c=>c==null||c.Length>16)||(g.States!=null&&(g.States.Count>4096||g.States.Any(k=>k.Key.Length>16||k.Value==null||k.Value.Length>32))))||x.Groups.Select(g=>g.Module).Distinct().Count()!=x.Groups.Length)throw new IOException("Invalid scan snapshot");
                 }
             }
         }
