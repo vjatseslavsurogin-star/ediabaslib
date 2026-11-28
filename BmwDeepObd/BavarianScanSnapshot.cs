@@ -18,6 +18,9 @@ namespace BmwDeepObd
             public string Module {get;set;}
             public string Variant {get;set;}
             public bool Read {get;set;}
+            public bool? Comparable {get;set;}
+            public string ReadAt {get;set;}
+            public Dictionary<string,string> States {get;set;}
             public string[] Codes {get;set;}=Array.Empty<string>();
         }
         internal static bool ValidVin(string vin)=>vin!=null&&vin.Length==17&&vin.All(c=>c>='0'&&c<='9'||c>='A'&&c<='Z'&&c!='I'&&c!='O'&&c!='Q');
@@ -41,9 +44,21 @@ namespace BmwDeepObd
                 var after=(y.Codes??Array.Empty<string>()).Where(c=>!string.IsNullOrWhiteSpace(c)).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 string Show(IEnumerable<string> codes)=>string.Join(", ",codes.OrderBy(c=>c,StringComparer.OrdinalIgnoreCase).DefaultIfEmpty("—"));
                 lines.Add(module+" · "+x.Variant);
+                if(x.ReadAt!=null||y.ReadAt!=null)lines.Add((x.ReadAt??"—")+" → "+(y.ReadAt??"—"));
                 lines.Add(T("  New records: ","  Новые записи: ")+Show(after.Except(before,StringComparer.OrdinalIgnoreCase)));
                 lines.Add(T("  Still recorded: ","  Сохранились: ")+Show(after.Intersect(before,StringComparer.OrdinalIgnoreCase)));
-                lines.Add(T("  Not seen in later recognized records: ","  Не обнаружены среди поздних записей: ")+Show(before.Except(after,StringComparer.OrdinalIgnoreCase)));
+                if(x.Comparable==true&&y.Comparable==true)
+                    lines.Add(T("  Not seen in later recognized records: ","  Не обнаружены среди поздних записей: ")+Show(before.Except(after,StringComparer.OrdinalIgnoreCase)));
+                else
+                    lines.Add(T("  Absence not assessed: unverified layout or legacy snapshot.","  Отсутствие не оценено: формат не подтверждён или старый отчёт."));
+                string Status(string v)=>v=="35"?T("Active","Активна"):v=="33"?T("Stored","Сохранена"):v=="32"?T("Not occurred","Не возникала"):T("Unknown/mixed","Неизвестный/смешанный");
+                if(x.States!=null&&y.States!=null)
+                    foreach(var code in x.States.Keys.Intersect(y.States.Keys,StringComparer.Ordinal).OrderBy(c=>c,StringComparer.Ordinal))
+                    {
+                        string old=x.States[code],now=y.States[code];
+                        if(old!=now&&new[]{"32","33","35"}.Contains(old)&&new[]{"32","33","35"}.Contains(now))
+                            lines.Add("  "+code+": "+Status(old)+" → "+Status(now));
+                    }
             }
             return lines.ToArray();
         }
