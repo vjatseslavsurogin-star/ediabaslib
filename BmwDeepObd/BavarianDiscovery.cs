@@ -18,6 +18,7 @@ namespace BmwDeepObd
         private LinearLayout _discoveryCards;
         private Button _discoveryStart,_discoveryStop;
         private TextView _discoverySummary;
+        private bool _showUnconfirmed;
         private readonly Dictionary<string,(string State,string Detail)> _discoveryResults=new();
         private ISharedPreferences DiscoveryProfile(string vin)=>GetSharedPreferences("bavarian_discovery_"+vin,FileCreationMode.Private);
         private void CreateDiscovery()
@@ -108,11 +109,29 @@ namespace BmwDeepObd
             var profile=string.IsNullOrEmpty(_discoveryVin)?null:DiscoveryProfile(_discoveryVin);
             int responding=_discoveryResults.Count(x=>x.Value.State=="responded");
             _discoverySummary.Text=responding+" / "+BavarianScanCatalog.DiscoveryGroups.Length+" · "+T("groups responded (not unique ECUs)","групп ответили (не число отдельных ECU)");
+            _discoveryCards.AddView(BavarianUi.Text(this,T("ECU overview · logical groups, not wiring","Карта ECU · логические группы, не схема шин"),16,true));
+            var map=new LinearLayout(this){Orientation=Orientation.Vertical};_discoveryCards.AddView(map);
+            LinearLayout mapRow=null;int index=0;
+            foreach(var group in BavarianScanCatalog.DiscoveryGroups)
+            {
+                var state=_discoveryResults.TryGetValue(group,out var observed)?observed.State:"unconfirmed";
+                var owner=profile?.GetString("owner_"+group,"")??"";
+                if(index++%3==0){mapRow=new LinearLayout(this){Orientation=Orientation.Horizontal};map.AddView(mapRow);}
+                var tile=BavarianUi.Text(this,BavarianScanCatalog.Module(group),12,true);tile.SetGravity(GravityFlags.Center);
+                tile.SetPadding(Dp(4),Dp(8),Dp(4),Dp(8));
+                tile.Background=BavarianUi.Shape(this,BavarianUi.Surface,8);
+                tile.SetTextColor(state=="responded"?BavarianUi.Green:state=="unsupported"||owner=="expected"?BavarianUi.Warning:BavarianUi.Muted);
+                mapRow.AddView(tile,new LinearLayout.LayoutParams(0,Dp(60),1){RightMargin=Dp(3),BottomMargin=Dp(3)});
+            }
+            _discoveryCards.AddView(BavarianUi.Text(this,T("Green: responded · amber: expected/unsupported · gray: not confirmed","Зелёный: ответил · янтарный: ожидается/не поддерживается · серый: не подтверждён"),12));
+            var filter=new CheckBox(this){Text=T("Show all candidates (including unknown / absent)","Показать все группы (неизвестные / отсутствующие)"),Checked=_showUnconfirmed};BavarianUi.Checkbox(filter);
+            filter.CheckedChange+=(a,b)=>{_showUnconfirmed=b.IsChecked;RenderDiscovery();};_discoveryCards.AddView(filter);
             foreach(var group in BavarianScanCatalog.DiscoveryGroups)
             {
                 var r=_discoveryResults.TryGetValue(group,out var found)?found:("unconfirmed",T("Not checked","Не проверен"));
                 string owner=profile?.GetString("owner_"+group,"")??"";
                 bool yes=r.Item1=="responded",unsupported=r.Item1=="unsupported";
+                if(!_showUnconfirmed&&!yes&&!unsupported&&owner!="expected")continue;
                 string status=yes?T("Responded","Ответил"):unsupported?T("Variant not supported","Вариант не поддерживается"):owner=="absent"?T("Owner: not installed; not confirmed by scan","По данным владельца отсутствует; поиском не подтверждено"):owner=="expected"?T("Expected; response not confirmed","Ожидается; ответ не подтверждён"):T("Presence unconfirmed","Наличие не подтверждено");
                 if(yes&&owner=="absent")status+=T(" · conflicts with owner note"," · противоречит отметке владельца");
                 var card=new LinearLayout(this){Orientation=Orientation.Vertical};card.Background=BavarianUi.Shape(this,BavarianUi.Surface);card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));
@@ -129,7 +148,7 @@ namespace BmwDeepObd
             if(profile!=null)
             {
                 var raw=profile.GetString("raw_fa","");
-                if(!string.IsNullOrEmpty(raw))BavarianUi.Action(_discoveryCards,T("Raw vehicle order · FA","Исходный заказ автомобиля · FA"),(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("FA / VO · raw").SetMessage(raw).SetPositiveButton("OK",(a,b)=>{}).Show());
+                if(!string.IsNullOrEmpty(raw)){_discoveryCards.AddView(BavarianUi.Text(this,T("Factory order read; binary layout not verified. Do not infer equipment from it yet.","Заводская комплектация считана; формат не подтверждён. Автоматический вывод опций пока недоступен."),13));}if(!string.IsNullOrEmpty(raw))BavarianUi.Action(_discoveryCards,T("Raw vehicle order · FA","Исходный заказ автомобиля · FA"),(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("FA / VO · raw").SetMessage(raw).SetPositiveButton("OK",(a,b)=>{}).Show());
                 var note=new EditText(this){Hint=T("Aftermarket equipment / notes","Нештатное оборудование / заметки"),Text=profile.GetString("notes","")};_discoveryCards.AddView(note);
                 BavarianUi.Action(_discoveryCards,T("Save vehicle notes","Сохранить заметки"),(s,e)=>{profile.Edit().PutString("notes",note.Text??"").Apply();Toast.MakeText(this,T("Saved","Сохранено"),ToastLength.Short).Show();});
             }

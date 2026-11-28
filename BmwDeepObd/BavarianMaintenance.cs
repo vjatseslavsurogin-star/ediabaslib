@@ -38,9 +38,10 @@ namespace BmwDeepObd
             }
             if(mode=="mileage")AddText(T("Mileage records may be synchronized or stored with offsets. Matching values do not prove authenticity.","Пробеги могут синхронизироваться или храниться со смещением. Совпадение не доказывает подлинность."),13);
             _maintenanceStop=AddButton(T("Stop request","Остановить запрос"),(s,e)=>_cancel?.Cancel());
-            if(mode=="battery_read"||mode=="battery"){_maintenanceCards=new LinearLayout(this){Orientation=Orientation.Vertical};_body.AddView(_maintenanceCards);}
+            if(mode=="battery_read"||mode=="battery"||mode=="cbs"){_maintenanceCards=new LinearLayout(this){Orientation=Orientation.Vertical};_body.AddView(_maintenanceCards);}
             if(mode=="battery_read")BavarianUi.Action(_body,T("Battery registration · service","Регистрация нового АКБ · сервис"),(s,e)=>{if(_busy)return;var intent=new Intent(this,typeof(BavarianVehicleActivity));intent.PutExtra("bavarian_mode","battery");StartActivity(intent);});
             _output=AddText(T("No readings yet.","Данные ещё не прочитаны."),15);
+            if(_maintenanceCards!=null){_output.Visibility=ViewStates.Gone;AddButton(T("Raw report / hide","Исходный отчёт / скрыть"),(s,e)=>_output.Visibility=_output.Visibility==ViewStates.Visible?ViewStates.Gone:ViewStates.Visible);}
             AddButton(T("Share developer report","Поделиться инженерным отчётом"),(s,e)=>ShareReport());
             _poll=new Java.Lang.Runnable(()=>{if(!_visible)return;RefreshMaintenance();_handler.PostDelayed(_poll,1000);});
             RefreshMaintenance();
@@ -85,6 +86,7 @@ namespace BmwDeepObd
                 if(IsFinishing||IsDestroyed||!_visible)return;
                 _output.Text=result.Text;
                 RenderMaintenanceCards(result);
+                if(write||result.Incomplete||result.Cards.Count==0)_output.Visibility=ViewStates.Visible;
                 if(!write&&result.Identity!=null&&!token.IsCancellationRequested)
                 {_maintenanceIdentity=result.Identity;_maintenanceDevice=d.DeviceName;_maintenanceReadAt=SystemClock.ElapsedRealtime();}
                 if(!SaveHistory("Maintenance "+_maintenanceMode,result.Text,token.IsCancellationRequested||result.Incomplete))
@@ -93,7 +95,7 @@ namespace BmwDeepObd
             catch(Exception ex)
             {
                 Log("MAINTENANCE FAIL "+Describe(ex));
-                if(!IsFinishing&&!IsDestroyed)_output.Text=(write?T("Registration not verified. Do not repeat automatically. Read battery history first.\n","Регистрация не подтверждена. Не повторяйте автоматически. Сначала прочитайте историю АКБ.\n"):"")+Describe(ex);
+                if(!IsFinishing&&!IsDestroyed){_output.Visibility=ViewStates.Visible;_output.Text=(write?T("Registration not verified. Do not repeat automatically. Read battery history first.\n","Регистрация не подтверждена. Не повторяйте автоматически. Сначала прочитайте историю АКБ.\n"):"")+Describe(ex);}
             }
             finally{_cancel.Dispose();_cancel=null;_busy=false;_activeDevice=null;if(!IsFinishing&&!IsDestroyed)RefreshMaintenance();}
         }
@@ -113,6 +115,7 @@ namespace BmwDeepObd
                 card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));card.AddView(BavarianUi.Text(this,item.Label,13));
                 card.AddView(BavarianUi.Text(this,item.Value,20,true));_maintenanceCards.AddView(card,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
             }
+            if(_maintenanceMode=="cbs")_maintenanceCards.AddView(BavarianUi.Text(this,T("ECU-reported intervals, not a workshop or legal inspection certificate. Unknown values stay in the raw report.","Интервалы по данным ECU, не подтверждение обслуживания или техосмотра. Неопределённые значения остаются в исходном отчёте."),12));
             if(_maintenanceMode=="battery"||_maintenanceMode=="battery_read")_maintenanceCards.AddView(BavarianUi.Text(this,T("SOH is ECU estimate; type and current unavailable in this profile.","SOH — оценка ECU; тип АКБ и ток в этом профиле недоступны."),12));
         }
         private MaintenanceResult ReadMaintenance(UsbManager manager,string endpoint,string mode,bool write,string expected,CancellationToken token)
@@ -223,7 +226,7 @@ namespace BmwDeepObd
                             foreach(var row in data)
                             {
                                 if(!row.TryGetValue("ID_FN_BOS_MESS_TEXT",out var label))continue;
-                                if(label.IndexOf("CSF",StringComparison.OrdinalIgnoreCase)>=0||label.IndexOf("Partikel",StringComparison.OrdinalIgnoreCase)>=0)continue;
+                                result.Cards.Add((BavarianCbsPresentation.Label(label,_ru)+" · "+BavarianScanCatalog.Module(group),BavarianCbsPresentation.Value(row,_ru)));
                                 lines.Add(label+" · "+string.Join(" · ",row.Where(k=>k.Key=="RMMI_BOS_WERT"||k.Key=="RMMI_BOS_EINH"||k.Key=="ST_UN_BOS_TEXT"||k.Key=="COU_RSTG_BOS_MESS_WERT"||k.Key=="AVAI_BOS_WERT"||k.Key=="ZIEL_MM_WERT"||k.Key=="ZIEL_YY_WERT").Select(k=>k.Key+": "+k.Value)));
                             }
                             if(!data.Any(r=>r.ContainsKey("ID_FN_BOS_MESS_TEXT")))lines.Add(T("No recognized service entries.","Нет распознанных записей CBS."));

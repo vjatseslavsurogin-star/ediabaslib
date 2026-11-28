@@ -48,7 +48,7 @@ namespace BmwDeepObd
             _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4 DEV 2",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
+            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4 DEV 3",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
@@ -75,7 +75,7 @@ namespace BmwDeepObd
                 var check=BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>OpenFeature("health"),true);_gated.Add(check);
                 if(GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("metrics",true)){
                 Section(T("Last recorded values","Последние записанные данные"));
-                var faults=prefs.GetString("DDE_summary","—");
+                var faults=LocalFaultSummary(prefs.GetString("DDE_summary","—"));
                 MetricPair(T("DDE fault records","Записи DDE"),faults,T("Coolant","ОЖ"),LastValue("coolant"));
                 MetricPair(T("DDE voltage","Напряжение"),LastValue("voltage"),T("Boost · absolute","Наддув · абс."),LastValue("boost"));
                 Text(T("Saved readings, not live. Times shown when available.","Сохранённые данные, не текущие. Время указано при наличии."),11,false,8);
@@ -293,6 +293,7 @@ namespace BmwDeepObd
             _body.AddView(row,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
             if(gated){_gated.Add(row);row.Enabled=_ready;row.Alpha=_ready?1f:0.55f;}
         }
+        private string LocalFaultSummary(string value)=>!_ru?value.Replace(" / не прочитан","").Replace(" / нет распознанных записей",""):value.Replace("Read failed / не прочитан","Не прочитан").Replace("No recognized records / нет распознанных записей","Нет распознанных записей").Replace("Read failed","Не прочитан").Replace("No recognized records","Нет распознанных записей").Replace("Active ","Активные ").Replace("Stored ","Сохранённые ").Replace("Other ","Прочие ");
         private string LastValue(string key)
         {
             var p=GetSharedPreferences("bavarian_overview",FileCreationMode.Private);
@@ -316,7 +317,7 @@ namespace BmwDeepObd
         {
             var p=GetSharedPreferences("bavarian_overview",FileCreationMode.Private);
             var card=Card();card.AddView(BavarianUi.Text(this,module+" · "+name,18,true));
-            var value=p.GetString(module+"_summary","");
+            var value=LocalFaultSummary(p.GetString(module+"_summary",""));
             card.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(value)?T("Not scanned","Не проверен"):value,15));
             card.AddView(BavarianUi.Text(this,p.GetString(module+"_time",""),12));
         }

@@ -272,6 +272,7 @@ namespace BmwDeepObd
         private readonly BavarianTrend _boost,_rail;
         private readonly BavarianCylinderView _cylinders;
         private readonly Dictionary<string,TextView> _readouts=new Dictionary<string,TextView>();
+        private readonly Dictionary<string,TextView> _units=new Dictionary<string,TextView>();
         private string[] _selection=Array.Empty<string>();
         private readonly Dictionary<string,BavarianGauge> _gauges=new Dictionary<string,BavarianGauge>();
         private int _displayMode;
@@ -289,8 +290,8 @@ namespace BmwDeepObd
             if(gearbox){_slip=BavarianUi.Text(context,"",14,true);AddView(_slip);_slip.Visibility=ViewStates.Gone;}
             if(!gearbox)
             {
-                _boost=new BavarianTrend(context,"Boost / mbar · actual orange · target contrast");
-                _rail=new BavarianTrend(context,"Rail / bar · actual orange · target contrast");
+                _boost=new BavarianTrend(context,_ru?"Наддув / mbar · факт / цель":"Boost / mbar · actual / target");
+                _rail=new BavarianTrend(context,_ru?"Рампа / bar · факт / цель":"Rail / bar · actual / target");
                 AddView(_boost,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,Dp(150)){TopMargin=Dp(8)});
                 AddView(_rail,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,Dp(150)){TopMargin=Dp(8)});
                 _boost.Visibility=_rail.Visibility=ViewStates.Gone;
@@ -301,7 +302,7 @@ namespace BmwDeepObd
         }
         public void ShowSelection(string[] jobs)
         {
-            _selection=jobs.ToArray();_tiles.RemoveAllViews();_readouts.Clear();_gauges.Clear();
+            _selection=jobs.ToArray();_tiles.RemoveAllViews();_readouts.Clear();_units.Clear();_gauges.Clear();
             if(_slip!=null){_slip.Visibility=jobs.Contains("STATUS_MOTORDREHZAHL")&&jobs.Contains("STATUS_TURBINENDREHZAHL")?ViewStates.Visible:ViewStates.Gone;_slip.Text=_ru?"Разность оборотов: —":"Speed difference: —";}
             bool injectors=jobs.Contains(BavarianLiveFrame.InjectorJob);
             if(_cylinders!=null){_cylinders.Visibility=injectors?ViewStates.Visible:ViewStates.Gone;_cylinders.ClearValues();}
@@ -320,7 +321,7 @@ namespace BmwDeepObd
                 var accent=new View(Context);accent.Background=BavarianUi.Shape(Context,BavarianUi.Blue,2);if(_displayMode!=2)card.AddView(accent,new LinearLayout.LayoutParams(Dp(24),Dp(3)){BottomMargin=Dp(7)});
                 var lp=new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WrapContent,1);lp.SetMargins(Dp(4),0,Dp(4),0);row.AddView(card,lp);
                 var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12};label.SetMinLines(_displayMode==2?1:2);label.SetTextColor(BavarianUi.Muted);if(_displayMode==2)card.AddView(label,new LinearLayout.LayoutParams(0,-2,1));else card.AddView(label);
-                var readout=BavarianUi.Text(Context,"—",_displayMode==2?18:24,true);readout.SetTypeface(Typeface.Monospace,TypefaceStyle.Bold);readout.SetTextColor(BavarianUi.White);card.AddView(readout);
+                var readout=BavarianUi.Text(Context,"—",_displayMode==2?18:24,true);readout.SetTypeface(Typeface.Monospace,TypefaceStyle.Bold);readout.SetTextColor(BavarianUi.White);var reading=new LinearLayout(Context){Orientation=Orientation.Vertical};reading.AddView(readout);var unitLabel=BavarianUi.Text(Context,"",12);reading.AddView(unitLabel);card.AddView(reading);_units[jobs[i]]=unitLabel;
                 _readouts[jobs[i]]=readout;
                 double max=jobs[i] switch {"STATUS_MOTORDREHZAHL"=>5000,"STATUS_TURBINENDREHZAHL"=>5000,"STATUS_LADEDRUCK_IST" or "STATUS_LADEDRUCK_SOLL"=>3000,"STATUS_RAILDRUCK_IST" or "STATUS_RAILDRUCK_SOLL"=>2000,"STATUS_KUEHLMITTELTEMPERATUR" or "STATUS_GETRIEBETEMPERATUR"=>130,"STATUS_UBATT" or "STATUS_BATTERIESPANNUNG"=>16,_=>0};
                 if(_displayMode==0&&max>0){var gauge=new BavarianGauge(Context,max);card.AddView(gauge,new LinearLayout.LayoutParams(-1,Dp(64)));_gauges[jobs[i]]=gauge;}
@@ -333,7 +334,7 @@ namespace BmwDeepObd
             _title.Text=_ru?"Ожидание данных":"Waiting for readings";
         }
         public void PrepareSession(string[] jobs){if(!_selection.SequenceEqual(jobs))ShowSelection(jobs);else ResetHistory();}
-        public void ResetHistory(){_cylinders?.ClearValues();foreach(var value in _readouts.Values)value.Text="—";foreach(var gauge in _gauges.Values)gauge.SetValue(null);if(_slip!=null)_slip.Text=_ru?"Разность оборотов: —":"Speed difference: —";_title.Text=_ru?"Ожидание данных":"Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
+        public void ResetHistory(){_cylinders?.ClearValues();foreach(var value in _readouts.Values)value.Text="—";foreach(var u in _units.Values)u.Text="";foreach(var gauge in _gauges.Values)gauge.SetValue(null);if(_slip!=null)_slip.Text=_ru?"Разность оборотов: —":"Speed difference: —";_title.Text=_ru?"Ожидание данных":"Waiting for readings";_boost?.ClearHistory();_rail?.ClearHistory();}
         public void MarkStopped(){_title.Text=(_ru?"Остановлено · последние показания":"Stopped · last readings");}
         public void UpdateFrame(BavarianLiveFrame frame)
         {
@@ -345,7 +346,8 @@ namespace BmwDeepObd
                 if(_gauges.TryGetValue(s.Job,out var gauge))gauge.SetValue(s.Value);
                 string unit=s.Unit=="deg C"||s.Unit=="Grad C"?"°C":s.Unit=="hPa"?"mbar":s.Unit;
                 string fmt=s.Job=="STATUS_MOTORDREHZAHL"||s.Job=="STATUS_ISTGANG"?"0":s.Job=="STATUS_UBATT"?"0.00":"0.0";
-                string next=string.IsNullOrWhiteSpace(s.StateText)?s.Value.ToString(fmt,CultureInfo.InvariantCulture)+" "+unit:s.StateText+" ("+s.Value.ToString("0",CultureInfo.InvariantCulture)+")";if(value.Text!=next)value.Text=next;
+                string next=string.IsNullOrWhiteSpace(s.StateText)?s.Value.ToString(fmt,CultureInfo.InvariantCulture):s.Value.ToString("0",CultureInfo.InvariantCulture);if(value.Text!=next)value.Text=next;
+                if(_units.TryGetValue(s.Job,out var unitView)){string detail=string.IsNullOrWhiteSpace(s.StateText)?unit:s.StateText;if(unitView.Text!=detail)unitView.Text=detail;}
             }
             if(_slip!=null&&_slip.Visibility==ViewStates.Visible)
             {

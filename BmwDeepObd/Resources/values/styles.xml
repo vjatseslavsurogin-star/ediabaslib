@@ -36,6 +36,7 @@
     <item name="colorPrimary">#10151F</item>
     <item name="colorPrimaryDark">#07090D</item>
     <item name="colorAccent">#FF781F</item>
+    <item name="alertDialogTheme">@style/BavarianAmberDialogDark</item>
     <item name="android:windowBackground">#07090D</item>
     <item name="android:windowLightStatusBar">false</item>
     <item name="android:windowLightNavigationBar">false</item>
@@ -44,9 +45,22 @@
     <item name="colorPrimary">#FFFFFF</item>
     <item name="colorPrimaryDark">#F5F7FA</item>
     <item name="colorAccent">#BD4700</item>
+    <item name="alertDialogTheme">@style/BavarianAmberDialogLight</item>
     <item name="android:windowBackground">#F5F7FA</item>
     <item name="android:windowLightStatusBar">true</item>
     <item name="android:windowLightNavigationBar">true</item>
+  </style>
+  <style name="BavarianAmberDialogDark" parent="Theme.AppCompat.Dialog.Alert">
+    <item name="colorAccent">#FF781F</item>
+    <item name="android:colorBackground">#10151F</item>
+    <item name="android:textColorPrimary">#F7F8FA</item>
+    <item name="android:textColorSecondary">#9EA7B5</item>
+  </style>
+  <style name="BavarianAmberDialogLight" parent="Theme.AppCompat.Light.Dialog.Alert">
+    <item name="colorAccent">#BD4700</item>
+    <item name="android:colorBackground">#FFFFFF</item>
+    <item name="android:textColorPrimary">#141A23</item>
+    <item name="android:textColorSecondary">#586578</item>
   </style>
   <style name="SpinnerDividerStyle" parent="Widget.AppCompat.ListView.DropDown">
     <item name="android:divider">?attr/dividerHorizontal</item>

@@ -333,7 +333,8 @@ namespace BmwDeepObd
             _extra.Enabled=ready&&AutoMode&&verifiedVariant;
             if(_adaptButton!=null)_adaptButton.Enabled=_visible&&!_busy&&permitted&&(_identified==null||_resolved=="gs19a.prg");
             _stopLive.Enabled=_busy;
-            if(_chooseSignals!=null)_chooseSignals.Enabled=!_busy;
+            if(_chooseSignals!=null){_chooseSignals.Enabled=!_busy;_chooseSignals.Visibility=_dashboard&&_busy?ViewStates.Gone:ViewStates.Visible;}
+            if(_dashboard){_csv.Visibility=_busy?ViewStates.Gone:ViewStates.Visible;if(_selectedSummary!=null)_selectedSummary.Visibility=_busy?ViewStates.Gone:ViewStates.Visible;}
             _csv.Enabled=!_busy&&AutoMode&&LatestCsv()!=null;
             _stats.Text="Jobs: "+_ok+" OK / "+_failed+" failed (this screen)";
         }
@@ -535,7 +536,7 @@ namespace BmwDeepObd
                 {
                     var records=BavarianFaultPanel.ParseRecords(rows);
                     string State(Dictionary<string,string> r)=>r.TryGetValue("F_VERSION",out string ver)&&ver=="2"&&r.TryGetValue("F_VORHANDEN_NR",out string state)?state:"";
-                    string summary=rows==null?"Read failed / не прочитан":records.Count==0?"No recognized records / нет распознанных записей":
+                    string summary=rows==null?"Read failed":records.Count==0?"No recognized records":
                         "Active "+records.Count(r=>State(r)=="35")+" · Stored "+records.Count(r=>State(r)=="33")+" · Other "+records.Count(r=>State(r)!="35"&&State(r)!="33");
                     edit.PutString(module+"_summary",summary);
                     edit.PutString(module+"_time",DateTime.Now.ToString("dd.MM HH:mm",CultureInfo.InvariantCulture));
