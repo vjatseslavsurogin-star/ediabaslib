@@ -431,10 +431,11 @@ namespace BmwDeepObd
                         if(!string.IsNullOrEmpty(cas.Vin))
                         {
                             var profile=DiscoveryProfile(cas.Vin);
-                            if(profile.GetBoolean("saved",false))
+                            if(profile.GetBoolean("saved",false)&&profile.GetBoolean("complete",false))
                             {
                                 targets=BavarianScanCatalog.DiscoveryGroups.Where(g=>profile.GetString("observed_"+g,"")=="responded"||profile.GetString("owner_"+g,"")=="expected"||(BavarianScanCatalog.AllGroups.Contains(g)&&profile.GetString("owner_"+g,"")!="absent")).ToArray();
-                                _scanProfileNote=T("VIN-matched saved profile; not a new discovery.","Профиль подтверждён по VIN; это не новый поиск оборудования.");
+                                if(targets.Length>0)_scanProfileNote=T("VIN-matched saved profile; not a new discovery.","Профиль подтверждён по VIN; это не новый поиск оборудования.");
+                                else targets=BavarianScanCatalog.DiscoveryGroups;
                             }
                         }
                     }
@@ -493,7 +494,15 @@ namespace BmwDeepObd
                     _output.Text=token.IsCancellationRequested?T("Scan incomplete / cancelled.","Сканирование не завершено / отменено."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
                     if(_smartScan)_output.Text=_scanProfileNote+"\n"+_output.Text;
                     if(_health)_output.Text=(incomplete||token.IsCancellationRequested?T("Partial check · see unavailable readings.","Неполная проверка · есть недоступные данные."):T("Read-only check completed.","Чтение завершено."))+"\n\n"+string.Join("\n\n",extraReports);
-                    if(!saved)_output.Text+="\n"+T("History could not be saved.","История не сохранена.");
+                    if(saved)
+                    {
+                        GetSharedPreferences("bavarian_overview",FileCreationMode.Private).Edit()
+                            .PutString("last_scan_time",DateTime.Now.ToString("dd.MM.yyyy HH:mm",CultureInfo.InvariantCulture))
+                            .PutString("last_scan_groups",_faultPanel.ReadGroupCount+"/"+_faultPanel.PlannedGroupCount)
+                            .PutString("last_scan_records",_faultPanel.ReadGroupCount==0?"—":_faultPanel.RelevantRecordCount.ToString(CultureInfo.InvariantCulture))
+                            .PutBoolean("last_scan_partial",incomplete||token.IsCancellationRequested).Apply();
+                    }
+                    else _output.Text+="\n"+T("History could not be saved.","История не сохранена.");
                 }
             }
             finally
