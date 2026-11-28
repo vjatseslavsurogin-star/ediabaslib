@@ -48,4 +48,8 @@ Check(report.Contains("EGS · No comparable later response")&&!report.Contains("
 b.Vin="WBANC71000A123457";
 bool rejected=false;try{BavarianScanSnapshot.Compare(a,b,false);}catch(InvalidOperationException){rejected=true;}
 Check(rejected,"different VIN rejected");
+b.Vin=vin;b.Groups=new[]{G("DDE","other.prg",true,"4521")};
+Check(string.Join("\n",BavarianScanSnapshot.Compare(a,b,false)).Contains("Not comparable (coverage or variant)"),"changed variant not compared");
+var roundtrip=System.Text.Json.JsonSerializer.Deserialize<BavarianScanSnapshot>(System.Text.Json.JsonSerializer.Serialize(a));
+Check(roundtrip.Vin==vin&&roundtrip.Groups.Length==2&&roundtrip.Groups[0].Codes.Contains("4501"),"snapshot JSON roundtrip");
 Console.WriteLine($"{count} checks passed.");
