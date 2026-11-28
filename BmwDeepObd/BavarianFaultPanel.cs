@@ -19,7 +19,8 @@ namespace BmwDeepObd
         }
         private readonly bool _ru;
         private readonly List<ModuleResult> _results=new List<ModuleResult>();
-        private readonly CheckBox _all;
+        private readonly Spinner _filter;
+        private readonly CheckBox _moduleStatus;
         private readonly LinearLayout _cards;
         private readonly TextView _summary;
         private readonly TextView[] _counts=new TextView[3];
@@ -42,10 +43,11 @@ namespace BmwDeepObd
                 cell.AddView(BavarianUi.Text(context,labels[i],11));_countRow.AddView(cell,new LinearLayout.LayoutParams(0,-2,1){RightMargin=Dp(4)});
             }
             AddView(_countRow,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
-            _all=new CheckBox(context){Text=T("Show all records (including not occurred)","Все записи (включая не возникавшие)")};BavarianUi.Checkbox(_all);
-            AddView(_all);
+            _filter=new Spinner(context);var filterAdapter=new ArrayAdapter<string>(context,Android.Resource.Layout.SimpleSpinnerItem,new[]{T("Relevant fault records","Актуальные записи"),T("Active","Активные"),T("Stored / not current","Сохранённые / не активные"),T("All records","Все записи")});
+            filterAdapter.SetDropDownViewResource(Android.Resource.Layout.SimpleSpinnerDropDownItem);_filter.Adapter=filterAdapter;AddView(_filter);
+            _moduleStatus=new CheckBox(context){Text=T("Show module status and technical details","Показать статус блоков и технические данные")};BavarianUi.Checkbox(_moduleStatus);AddView(_moduleStatus);
             _cards=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_cards);
-            _all.CheckedChange+=(s,e)=>Render();
+            _filter.ItemSelected+=(s,e)=>Render();_moduleStatus.CheckedChange+=(s,e)=>Render();
         }
         private TextView TextLine(LinearLayout parent,string text,int size)
         {
@@ -138,19 +140,21 @@ namespace BmwDeepObd
             _counts[0].Text=any?records.Count(f=>State(f)=="35").ToString():"—";
             _counts[1].Text=any?records.Count(f=>State(f)=="33").ToString():"—";
             _counts[2].Text=any?records.Count(f=>State(f)!="35"&&State(f)!="33").ToString():"—";
-            _summary.Text=T("Modules read: ","Блоков прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length+" · "+T("Recognized records only","Только распознанные записи");
-            foreach(string planned in _planned.Where(p=>!_results.Any(m=>m.Module==p)))TextLine(_cards,planned+" · "+T("Not read yet","Не прочитан"),13);
+            _summary.Text=T("Groups read: ","Групп прочитано: ")+_results.Count(m=>m.Records!=null)+"/"+_planned.Length+" · "+T("Failed / unconfirmed: ","Не прочитано / не подтверждено: ")+_results.Count(m=>m.Error!=null)+"\n"+T("Recognized records only; groups may overlap.","Только распознанные записи; группы могут пересекаться.");
+            if(_moduleStatus.Checked)foreach(string planned in _planned.Where(p=>!_results.Any(m=>m.Module==p)))TextLine(_cards,planned+" · "+T("Not read yet","Не прочитан"),13);
+            int shown=0;
             foreach(var m in _results)
             {
-                TextLine(_cards,m.Module+(m.Variant==null?"":" · "+m.Variant),18);
-                if(m.Error!=null){TextLine(_cards,T("Read failed: ","Не прочитан: ")+m.Error,14);continue;}
-                if(!string.IsNullOrEmpty(m.Vin))TextLine(_cards,"VIN: "+m.Vin,15);
-                if(!string.IsNullOrEmpty(m.ExtraNote))TextLine(_cards,m.ExtraNote,13);
+                if(_moduleStatus.Checked)TextLine(_cards,m.Module+(m.Variant==null?"":" · "+m.Variant),18);
+                if(m.Error!=null){if(_moduleStatus.Checked)TextLine(_cards,T("Read failed: ","Не прочитан: ")+m.Error,14);continue;}
+                if(_moduleStatus.Checked&&!string.IsNullOrEmpty(m.Vin))TextLine(_cards,"VIN: "+m.Vin,15);
+                if(_moduleStatus.Checked&&!string.IsNullOrEmpty(m.ExtraNote))TextLine(_cards,m.ExtraNote,13);
                 if(m.Records.Count==0)
-                {TextLine(_cards,T("No recognizable records; check raw report.","Распознанных записей нет; проверьте исходный отчёт."),14);continue;}
-                var visible=m.Records.Where(f=>_all.Checked||State(f)!="32")
+                {if(_moduleStatus.Checked)TextLine(_cards,T("No recognizable records; check raw report.","Распознанных записей нет; проверьте исходный отчёт."),14);continue;}
+                var visible=m.Records.Where(f=>_filter.SelectedItemPosition switch {1=>State(f)=="35",2=>State(f)=="33",3=>true,_=>State(f)!="32"})
                     .OrderBy(f=>State(f)=="35"?0:State(f)=="33"?1:2).ToList();
-                if(visible.Count==0)TextLine(_cards,T("No active, stored or unknown-status records in this response.","Нет активных, сохранённых или неопределённых записей в этом ответе."),14);
+                shown+=visible.Count;
+                if(_moduleStatus.Checked&&visible.Count==0)TextLine(_cards,T("No records matching filter.","Нет записей по фильтру."),14);
                 foreach(var f in visible)
                 {
                     string code=Code(f),state=State(f);
@@ -184,6 +188,7 @@ namespace BmwDeepObd
                     details.Click+=(s,e)=>{BavarianUi.Feedback(details);bool open=expanded.Visibility!=ViewStates.Visible;expanded.Visibility=open?ViewStates.Visible:ViewStates.Gone;details.Text=open?T("Hide details","Скрыть подробности"):T("Details  ›","Подробнее  ›");};
                 }
             }
+            if(shown==0)TextLine(_cards,_planned.Length==0?T("Start a scan to see fault records.","Начните сканирование для просмотра ошибок."):T("No matching recognized records. Check module coverage above; this does not prove a fault-free vehicle.","Нет распознанных записей по фильтру. Проверьте охват блоков выше; это не доказывает отсутствие неисправностей."),14);
         }
     }
 }
