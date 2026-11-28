@@ -6,6 +6,7 @@ namespace BmwDeepObd
 {
     internal sealed class BavarianScanSnapshot
     {
+        public BavarianScanSnapshot(){}
         public int Schema {get;set;}=1;
         public string Vin {get;set;}
         public string Time {get;set;}
