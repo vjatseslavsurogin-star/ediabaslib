@@ -53,6 +53,8 @@ namespace BmwDeepObd
         private string _group, _resolved;
         private bool _health;
         private string[] _scopedGroups,_lastScanTargets;
+        private string _lastScanVin;
+        private Button _retryScan;
         private bool _customScan;
         private bool _faultScreen, _fullScan, _dashboard, _injectors, _serviceScreen, _adaptations;
         private Button _adaptButton;
@@ -162,6 +164,7 @@ namespace BmwDeepObd
                 _scanAll=AddButton(_health?T("Start check","Начать проверку"):_scopedGroups!=null?T("Read faults","Прочитать ошибки"):_fullScan?T("Scan vehicle","Сканировать автомобиль"):T("Scan DDE + EGS","Прочитать DDE + EGS"),async(s,e)=>await ScanFaultsAsync());
                 BavarianUi.Style(_scanAll,true);
                 _cancelScan=AddButton(T("Stop request","Остановить запрос"),(s,e)=>_cancel?.Cancel());
+                _retryScan=AddButton(T("Retry unconfirmed groups","Повторить неподтверждённые группы"),async(s,e)=>{var unconfirmed=_faultPanel.UnconfirmedModules();var retry=(_lastScanTargets??Array.Empty<string>()).Where(g=>unconfirmed.Contains(BavarianScanCatalog.Module(g))).ToArray();if(retry.Length>0)await ScanFaultsAsync(retry);});_retryScan.Visibility=ViewStates.Gone;
                 _output=AddText("",14);
                 _faultPanel=new BavarianFaultPanel(this,_ru);
                 _body.AddView(_faultPanel);
@@ -316,6 +319,7 @@ namespace BmwDeepObd
                 _scanAll.Enabled=!_busy&&permitted;
                 _scanAll.Visibility=_busy?ViewStates.Gone:ViewStates.Visible;
                 _cancelScan.Visibility=_busy?ViewStates.Visible:ViewStates.Gone;
+                if(_retryScan!=null){int count=_faultPanel?.UnconfirmedModules().Length??0;_retryScan.Visibility=!_busy&&count>0?ViewStates.Visible:ViewStates.Gone;_retryScan.Enabled=permitted&&!_busy;_retryScan.Text=T("Retry unconfirmed groups","Повторить неподтверждённые группы")+" ("+count+")";}
                 _actions.Enabled=!_busy;
                 _readDetails.Enabled=!_busy;
                 _milButton.Enabled=_serviceScreen&&!_busy&&permitted;
@@ -360,7 +364,7 @@ namespace BmwDeepObd
             {
                 labels.Add(T("Retry unconfirmed groups","Повторить неподтверждённые группы")+" ("+retry.Length+")");
                 actions.Add(()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Retry scan","Повторное чтение"))
-                    .SetMessage(T("Read only these groups as a new session. Previous results remain in history.","Прочитать только эти группы в новой сессии. Предыдущий результат останется в истории."))
+                    .SetMessage(T("Read only these groups. Merge with the current results only if the same VIN is confirmed. Previous history is retained.","Прочитать только эти группы. Объединение с текущим результатом только при подтверждении того же VIN. Предыдущая история сохранится."))
                     .SetPositiveButton(T("Read","Читать"),async(d,a)=>await ScanFaultsAsync(retry)).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show());
             }
             labels.Add(T("Share developer report","Поделиться инженерным отчётом"));actions.Add(ShareReport);
@@ -427,10 +431,12 @@ namespace BmwDeepObd
             if(device==null||!Ready(manager,device)){Refresh();return;}
             string[] targets=retryTargets??_scopedGroups??(_fullScan?(_health?BavarianScanCatalog.AllGroups:BavarianScanCatalog.DiscoveryGroups):new[]{"d_motor.grp","d_egs.grp"});
             if(targets.Length==0){_output.Text=T("No groups selected.","Не выбраны группы.");return;}
-            _lastScanTargets=targets.ToArray();
+            string previousVin=_lastScanVin;
+            var previousTargets=_lastScanTargets;
+            bool mergedRetry=false;
+            if(retryTargets==null){_lastScanTargets=targets.ToArray();_lastScanVin=null;_faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());}
             _scanProfileNote="";
             bool details=_readDetails.Checked;
-            _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
             _scanIdentities.Clear();_scanDevice=device.DeviceName;
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
             _cancel.CancelAfter(TimeSpan.FromMinutes(_health&&retryTargets==null?6:_fullScan||_customScan||retryTargets!=null?8:(_scopedGroups?.Length??0)>2?3:2));
@@ -440,7 +446,7 @@ namespace BmwDeepObd
             Refresh();_output.Text=T("Reading modules...","Чтение блоков...");
             try
             {
-                if(!targets.Contains("d_cas.grp")||_smartScan)
+                if(retryTargets!=null||!targets.Contains("d_cas.grp")||_smartScan)
                 {
                     _output.Text=T("Checking current VIN and saved discovery profile…","Проверка VIN и сохранённой конфигурации…");
                     try
@@ -453,7 +459,7 @@ namespace BmwDeepObd
                             var profile=DiscoveryProfile(cas.Vin);
                             if(profile.GetBoolean("saved",false)&&profile.GetBoolean("complete",false))
                             {
-                                targets=BavarianScanCatalog.DiscoveryGroups.Where(g=>profile.GetString("observed_"+g,"")=="responded"||(profile.GetString("owner_"+g,"")=="expected"||profile.GetString("owner_"+g,"")=="retrofit")||(BavarianScanCatalog.AllGroups.Contains(g)&&profile.GetString("owner_"+g,"")!="absent")).ToArray();
+                                targets=BavarianScanCatalog.DiscoveryGroups.Where(g=>profile.GetString("observed_"+g,"")=="responded"||profile.GetBoolean("ever_"+g,false)||(profile.GetString("owner_"+g,"")=="expected"||profile.GetString("owner_"+g,"")=="retrofit")||(BavarianScanCatalog.AllGroups.Contains(g)&&profile.GetString("owner_"+g,"")!="absent")).ToArray();
                                 if(targets.Length>0)_scanProfileNote=T("VIN-matched saved profile; not a new discovery.","Профиль подтверждён по VIN; это не новый поиск оборудования.");
                                 else targets=BavarianScanCatalog.DiscoveryGroups;
                             }
@@ -465,12 +471,18 @@ namespace BmwDeepObd
                     _lastScanTargets=targets.ToArray();
                     _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());}
                 }
-                if(retryTargets!=null)_scanProfileNote=T("Separate retry scan of previously unconfirmed groups.","Отдельное повторное чтение неподтверждённых групп.");
+                if(retryTargets!=null)
+                {
+                    if(token.IsCancellationRequested)return;
+                    mergedRetry=BavarianScanSnapshot.ValidVin(previousVin)&&scanVin==previousVin&&!vinConflict&&previousTargets!=null;
+                    if(!mergedRetry){_lastScanTargets=targets.ToArray();_faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());}
+                    _scanProfileNote=mergedRetry?T("Retry merged with same-VIN session; each group retains its reading time.","Повтор объединён с сессией того же VIN; время чтения каждого блока сохранено."):T("Separate retry; previous VIN could not be verified.","Отдельный повтор: предыдущий VIN не подтверждён.");
+                }
                 foreach(string group in targets)
                 {
                     if(token.IsCancellationRequested)break;
                     string module=BavarianScanCatalog.Module(group);
-                    _output.Text=T("Reading ","Чтение ")+module;
+                    _output.Text=T("Reading ","Чтение ")+module+" · "+(Array.IndexOf(targets,group)+1)+"/"+targets.Length;
                     using var moduleCancel=CancellationTokenSource.CreateLinkedTokenSource(token);
                     moduleCancel.CancelAfter(TimeSpan.FromSeconds(details&&(group=="d_motor.grp"||group=="d_egs.grp")?30:15));
                     try
@@ -510,14 +522,15 @@ namespace BmwDeepObd
                     }
                     if(extraReports.Count<4)incomplete=true;
                 }
-                if(!IsFinishing&&!IsDestroyed&&_visible)
                 {
                     string reportText=(!string.IsNullOrEmpty(_scanProfileNote)?_scanProfileNote+"\n\n":"")+_faultPanel.ExportText()+(_health&&retryTargets==null?"\n\n"+string.Join("\n\n",extraReports):"");
-                    bool partial=incomplete||token.IsCancellationRequested||_faultPanel.ReadGroupCount<_faultPanel.PlannedGroupCount;
-                    var snapshot=_faultPanel.Capture(vinConflict?null:scanVin,partial);
+                    bool partial=incomplete||token.IsCancellationRequested||!_visible||_faultPanel.ReadGroupCount<_faultPanel.PlannedGroupCount;
+                    _lastScanVin=vinConflict?null:scanVin;
+                    var snapshot=_faultPanel.Capture(_lastScanVin,partial);
                     reportText="VIN: "+(snapshot.Vin??T("Not verified in this scan","Не подтверждён в этой сессии"))+"\n"+T("Groups read: ","Групп прочитано: ")+_faultPanel.ReadGroupCount+"/"+_faultPanel.PlannedGroupCount+"\n"+T("Recognized fault records: ","Распознанные записи: ")+_faultPanel.RelevantRecordCount+"\n\n"+reportText;
                     bool saved=SaveHistory(retryTargets!=null?T("Retry fault scan","Повторное чтение ошибок"):_health?T("Vehicle health check","Комплексная проверка"):T("Fault scan","Чтение ошибок"),reportText,partial,snapshot);
-                    _output.Text=partial?T("Partial scan. Some groups were not read.","Частичная проверка. Некоторые группы не прочитаны."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
+                    if(IsFinishing||IsDestroyed||!_visible)return;
+                    _output.Text=partial?T("Partial scan. Some readings were incomplete.","Частичная проверка. Некоторые данные неполные."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
                     if(!string.IsNullOrEmpty(_scanProfileNote))_output.Text=_scanProfileNote+"\n"+_output.Text;
                     if(_health&&retryTargets==null)_output.Text=(partial?T("Partial check · see unavailable readings.","Неполная проверка · есть недоступные данные."):T("Read-only check completed.","Чтение завершено."))+"\n\n"+string.Join("\n\n",extraReports);
                     if(saved)
