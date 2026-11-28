@@ -25,21 +25,22 @@ namespace BmwDeepObd
         private static bool IsMaintenanceMode(string mode)=>mode=="battery"||mode=="battery_read"||mode=="cbs"||mode=="ima"||mode=="mileage"||mode=="glow"||mode=="ecu_info";
         private void CreateMaintenance(string mode)
         {
+            if(mode=="battery_read")mode="battery"; // unified screen; explicit write confirmation and gates unchanged
             _maintenanceMode=mode;SupportActionBar?.Hide();
             BavarianUi.Shell(this,mode=="battery"||mode=="battery_read"||mode=="cbs"||mode=="ima"?3:1,_ru,i=>{if(_busy){_output.Text=T("Stop the request first.","Сначала остановите запрос.");return;}BavarianUi.NavigateHome(this,i);},out _body);
             AddText(mode switch {"battery" or "battery_read"=>T("Battery management","Аккумулятор"),"cbs"=>T("CBS service","Сервис CBS"),"ima"=>T("Injector codes","Коды форсунок"),"mileage"=>T("Mileage check","Проверка пробега"),"glow"=>T("Glow system","Свечи накаливания"),_=>T("ECU information","Информация ECU")},26);
             AddText(mode=="battery_read"?T("DDE 5.0 · IBS · read-only battery diagnostics.","DDE 5.0 · IBS · диагностика АКБ без записи."):mode=="battery"?T("DDE 5.0 · IBS · replacement history. Registration only for a newly installed battery of unchanged type and capacity.","DDE 5.0 · IBS · история замен. Регистрация только нового АКБ прежнего типа и ёмкости."):T("Read-only · approved ECU variants. Park safely, ignition on.","Только чтение · подтверждённые варианты ECU. Стоянка, зажигание включено."),14);
             _state=AddText("",14);
             _maintenanceRead=AddButton(mode=="battery_read"||mode=="battery"?T("Read battery status","Прочитать состояние АКБ"):T("Read data","Прочитать данные"),async(s,e)=>await MaintenanceAsync(false));BavarianUi.Style(_maintenanceRead,true);
-            if(mode=="battery")
-            {
-                _maintenanceWrite=AddButton(T("Register new battery","Зарегистрировать новый АКБ"),(s,e)=>ConfirmBattery());
-                AddText(T("Registration does not change battery coding. Current and AGM type are not available in this profile. SOH is the ECU's raw estimate, not a capacity test.","Регистрация не меняет кодировку АКБ. Ток и тип AGM недоступны в этом профиле. SOH — оценка ECU, не измерение фактической ёмкости."),13);
-            }
             if(mode=="mileage")AddText(T("Mileage records may be synchronized or stored with offsets. Matching values do not prove authenticity.","Пробеги могут синхронизироваться или храниться со смещением. Совпадение не доказывает подлинность."),13);
             _maintenanceStop=AddButton(T("Stop request","Остановить запрос"),(s,e)=>_cancel?.Cancel());
             if(mode=="battery_read"||mode=="battery"||mode=="cbs"){_maintenanceCards=new LinearLayout(this){Orientation=Orientation.Vertical};_body.AddView(_maintenanceCards);}
-            if(mode=="battery_read")BavarianUi.Action(_body,T("Battery registration · service","Регистрация нового АКБ · сервис"),(s,e)=>{if(_busy)return;var intent=new Intent(this,typeof(BavarianVehicleActivity));intent.PutExtra("bavarian_mode","battery");StartActivity(intent);});
+            if(mode=="battery")
+            {
+                AddText(T("Service operations","Сервисные операции"),16);
+                _maintenanceWrite=AddButton(T("Register new battery","Зарегистрировать новый АКБ"),(s,e)=>ConfirmBattery());
+                AddText(T("Registration does not change battery coding. Current and AGM type are not available in this profile. SOH is the ECU's raw estimate, not a capacity test.","Регистрация не меняет кодировку АКБ. Ток и тип AGM недоступны в этом профиле. SOH — оценка ECU, не измерение фактической ёмкости."),13);
+            }
             _output=AddText(T("No readings yet.","Данные ещё не прочитаны."),15);
             if(_maintenanceCards!=null){_output.Visibility=ViewStates.Gone;AddButton(T("Technical details / hide","Технические данные / скрыть"),(s,e)=>_output.Visibility=_output.Visibility==ViewStates.Visible?ViewStates.Gone:ViewStates.Visible);}
             AddButton(T("Share developer report","Поделиться инженерным отчётом"),(s,e)=>ShareReport());
@@ -83,13 +84,14 @@ namespace BmwDeepObd
             try
             {
                 var result=await Task.Run(()=>ReadMaintenance(m,d.DeviceName,_maintenanceMode,write,identity,token));
+                bool saved=SaveHistory("Maintenance "+_maintenanceMode,result.Text,token.IsCancellationRequested||result.Incomplete);
                 if(IsFinishing||IsDestroyed||!_visible)return;
                 _output.Text=result.Text;
                 RenderMaintenanceCards(result);
-                if(write||result.Incomplete||result.Cards.Count==0)_output.Visibility=ViewStates.Visible;
-                if(!write&&result.Identity!=null&&!token.IsCancellationRequested)
+                _output.Visibility=write||result.Incomplete||result.Cards.Count==0?ViewStates.Visible:ViewStates.Gone;
+                if(!write&&result.Identity!=null&&!result.Incomplete&&!token.IsCancellationRequested)
                 {_maintenanceIdentity=result.Identity;_maintenanceDevice=d.DeviceName;_maintenanceReadAt=SystemClock.ElapsedRealtime();}
-                if(!SaveHistory("Maintenance "+_maintenanceMode,result.Text,token.IsCancellationRequested||result.Incomplete))
+                if(!saved)
                     _output.Text+="\n"+T("Local report not saved.","Локальный отчёт не сохранён.");
             }
             catch(Exception ex)
@@ -214,7 +216,17 @@ namespace BmwDeepObd
                         if(mode=="battery"||mode=="battery_read")
                         {
                             if(variant!="d50m57e0.prg")throw new IOException("DDE 5.0 required");
-                            var ibs=Read("IDENT_IBS");var pm1=Read("STATUS_SYSTEMCHECK_PM_INFO_1");var pm2=Read("STATUS_SYSTEMCHECK_PM_INFO_2");var voltage=Read("STATUS_UBATT");
+                            List<Dictionary<string,string>> ReadBattery(string job)
+                            {
+                                if(write)return Read(job);
+                                if(token.IsCancellationRequested){result.Incomplete=true;return new();}
+                                try{return Read(job);}
+                                catch(Exception ex){result.Incomplete=true;lines.Add(job+" · "+T("Unavailable: ","Недоступно: ")+Describe(ex));return new();}
+                            }
+                            var voltage=ReadBattery("STATUS_UBATT");
+                            var ibs=ReadBattery("IDENT_IBS");
+                            var pm1=ReadBattery("STATUS_SYSTEMCHECK_PM_INFO_1");
+                            var pm2=ReadBattery("STATUS_SYSTEMCHECK_PM_INFO_2");
                             result.Cards.Add((T("State of charge · SOC","Уровень заряда · SOC"),Format(pm2,"STAT_LADUNGSZUSTAND_AKTUELL")));
                             try{double soc=Number(pm2,"STAT_LADUNGSZUSTAND_AKTUELL","%");if(soc>=0&&soc<=100)result.Soc=soc;}catch(IOException){}
                             result.BatteryIbsPart=Field(ibs,"ID_BMW_NR");
@@ -236,7 +248,7 @@ namespace BmwDeepObd
                             foreach(var row in pm1.Concat(pm2))foreach(var kv in row.Where(k=>(k.Key.StartsWith("STAT_IBS_FEHLERZAEHLER")||k.Key.StartsWith("STAT_KTIBS_FEHLERZAEHLER")||k.Key.StartsWith("STAT_KTBS_FEHLERZAEHLER"))&&k.Key.EndsWith("_WERT")))lines.Add(kv.Key+": "+kv.Value);
                             if(!write)
                             {
-                                if(mode=="battery"&&!current.Bluetooth){try{if(Number(pm2,"STAT_BATTERIE_KAPAZITAET","Ah")>0&&Number(voltage,"STAT_UBATT","V")>=12.0&&Number(voltage,"STAT_UBATT","V")<=15.0)result.Identity=id;}catch(IOException){lines.Add(T("Registration unavailable: unverified preconditions.","Регистрация недоступна: условия не подтверждены."));}}
+                                if(mode=="battery"&&!current.Bluetooth&&!result.Incomplete&&!token.IsCancellationRequested){try{if(Field(pm1,"STAT_BATTERIETAUSCH_LETZTER_WERT")!=null&&Number(pm2,"STAT_BATTERIE_KAPAZITAET","Ah")>0&&Number(voltage,"STAT_UBATT","V")>=12.0&&Number(voltage,"STAT_UBATT","V")<=15.0)result.Identity=id;}catch(IOException){lines.Add(T("Registration unavailable: unverified preconditions.","Регистрация недоступна: условия не подтверждены."));}}
                             }
                             else
                             {
@@ -250,6 +262,7 @@ namespace BmwDeepObd
                                 Read("STEUERN_BATTERIETAUSCH_REGISTRIEREN");
                                 var after=Read("STATUS_SYSTEMCHECK_PM_INFO_1");
                                 var newest=Field(after,"STAT_BATTERIETAUSCH_LETZTER_WERT");
+                                for(int i=0;i<history.Length;i++)result.Cards[6+i]=(T("Replacement record ","Запись замены ")+(i+1),Format(after,"STAT_BATTERIETAUSCH_"+history[i]));
                                 lines.Add(T("Registration acknowledged by ECU. History reread: ","ECU подтвердил команду. История перечитана: ")+Format(after,"STAT_BATTERIETAUSCH_LETZTER"));
                                 if(newest==null||before==newest){lines.Add(T("History change not independently verified. Do not repeat automatically.","Изменение истории независимо не подтверждено. Не повторяйте автоматически."));result.Incomplete=true;}
                             }
