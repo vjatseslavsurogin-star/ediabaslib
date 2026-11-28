@@ -66,7 +66,7 @@ namespace BmwDeepObd
         internal static TextView Text(Context c,string text,int size,bool title=false)
         {
             var t=new TextView(c){Text=text,TextSize=size};t.SetTextColor(title?White:Muted);
-            t.SetTypeface(Typeface.Create(title?"sans-serif-medium":"sans-serif",TypefaceStyle.Normal));return t;
+            t.SetTypeface(Typeface.Create(title?"sans-serif-medium":"sans-serif",TypefaceStyle.Normal),TypefaceStyle.Normal);return t;
         }
         internal static void Style(Button b,bool primary=false)
         {
