@@ -435,7 +435,8 @@ namespace BmwDeepObd
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
             _cancel.CancelAfter(TimeSpan.FromMinutes(_health&&retryTargets==null?6:_fullScan||_customScan||retryTargets!=null?8:(_scopedGroups?.Length??0)>2?3:1));
             var token=_cancel.Token;
-            bool incomplete=false;var extraReports=new List<string>();
+            bool incomplete=false,vinConflict=false;string scanVin=null;var extraReports=new List<string>();
+            void ObserveVin(string vin){if(!BavarianScanSnapshot.ValidVin(vin))return;if(scanVin!=null&&scanVin!=vin)vinConflict=true;else scanVin=vin;}
             Refresh();_output.Text=T("Reading modules...","Чтение блоков...");
             try
             {
@@ -446,19 +447,20 @@ namespace BmwDeepObd
                     {
                         using var preflight=CancellationTokenSource.CreateLinkedTokenSource(token);preflight.CancelAfter(TimeSpan.FromSeconds(20));
                         var cas=await Task.Run(()=>Execute(manager,device.DeviceName,"d_cas.grp",new[]{"IDENT"},null,null,preflight.Token,false,null,null,false,true));
+                        ObserveVin(cas.Vin);
                         if(!string.IsNullOrEmpty(cas.Vin))
                         {
                             var profile=DiscoveryProfile(cas.Vin);
                             if(profile.GetBoolean("saved",false)&&profile.GetBoolean("complete",false))
                             {
-                                targets=BavarianScanCatalog.DiscoveryGroups.Where(g=>profile.GetString("observed_"+g,"")=="responded"||profile.GetString("owner_"+g,"")=="expected"||(BavarianScanCatalog.AllGroups.Contains(g)&&profile.GetString("owner_"+g,"")!="absent")).ToArray();
+                                targets=BavarianScanCatalog.DiscoveryGroups.Where(g=>profile.GetString("observed_"+g,"")=="responded"||(profile.GetString("owner_"+g,"")=="expected"||profile.GetString("owner_"+g,"")=="retrofit")||(BavarianScanCatalog.AllGroups.Contains(g)&&profile.GetString("owner_"+g,"")!="absent")).ToArray();
                                 if(targets.Length>0)_scanProfileNote=T("VIN-matched saved profile; not a new discovery.","Профиль подтверждён по VIN; это не новый поиск оборудования.");
                                 else targets=BavarianScanCatalog.DiscoveryGroups;
                             }
                         }
                     }
                     catch(Exception ex){Log("SMART PROFILE UNAVAILABLE "+Describe(ex));}
-                    token.ThrowIfCancellationRequested();
+                    if(token.IsCancellationRequested)incomplete=true;
                     if(string.IsNullOrEmpty(_scanProfileNote))_scanProfileNote=T("No matching VIN profile; full 24-group scan used.","Нет подходящего профиля VIN; выполнен полный опрос 24 групп.");
                     _lastScanTargets=targets.ToArray();
                     _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
@@ -478,6 +480,7 @@ namespace BmwDeepObd
                         token.ThrowIfCancellationRequested();
                         if(IsFinishing||IsDestroyed||!_visible)break;
                         _faultPanel.AddResult(module,result.Variant,result.FaultRows,result.ExtraDetails,result.Vin,result.ExtraNote);
+                        if(group=="d_cas.grp")ObserveVin(result.Vin);
                         SaveOverview(module,result.FaultRows,result.Vin);
                         if(!string.IsNullOrEmpty(result.Identity))RememberEcuReply(module+" · "+result.Variant);
                         if((result.Variant=="d50m57e0.prg"||result.Variant=="gs19a.prg")&&!string.IsNullOrEmpty(result.Identity)&&result.FaultRows!=null)_scanIdentities[group]=(result.Variant,result.Identity);
@@ -510,7 +513,10 @@ namespace BmwDeepObd
                 if(!IsFinishing&&!IsDestroyed&&_visible)
                 {
                     string reportText=(!string.IsNullOrEmpty(_scanProfileNote)?_scanProfileNote+"\n\n":"")+_faultPanel.ExportText()+(_health&&retryTargets==null?"\n\n"+string.Join("\n\n",extraReports):"");
-                    bool saved=SaveHistory(retryTargets!=null?T("Retry fault scan","Повторное чтение ошибок"):_health?T("Vehicle health check","Комплексная проверка"):T("Fault scan","Чтение ошибок"),reportText,incomplete||token.IsCancellationRequested);
+                    bool partial=incomplete||token.IsCancellationRequested||_faultPanel.ReadGroupCount<_faultPanel.PlannedGroupCount;
+                    var snapshot=_faultPanel.Capture(vinConflict?null:scanVin,partial);
+                    reportText="VIN: "+(snapshot.Vin??T("Not verified in this scan","Не подтверждён в этой сессии"))+"\n"+T("Groups read: ","Групп прочитано: ")+_faultPanel.ReadGroupCount+"/"+_faultPanel.PlannedGroupCount+"\n"+T("Recognized fault records: ","Распознанные записи: ")+_faultPanel.RelevantRecordCount+"\n\n"+reportText;
+                    bool saved=SaveHistory(retryTargets!=null?T("Retry fault scan","Повторное чтение ошибок"):_health?T("Vehicle health check","Комплексная проверка"):T("Fault scan","Чтение ошибок"),reportText,partial,snapshot);
                     _output.Text=token.IsCancellationRequested?T("Scan incomplete / cancelled.","Сканирование не завершено / отменено."):T("Scan finished. See results by module below.","Чтение завершено. Результаты по блокам ниже.");
                     if(!string.IsNullOrEmpty(_scanProfileNote))_output.Text=_scanProfileNote+"\n"+_output.Text;
                     if(_health&&retryTargets==null)_output.Text=(incomplete||token.IsCancellationRequested?T("Partial check · see unavailable readings.","Неполная проверка · есть недоступные данные."):T("Read-only check completed.","Чтение завершено."))+"\n\n"+string.Join("\n\n",extraReports);
@@ -574,14 +580,16 @@ namespace BmwDeepObd
             }
             catch(Exception){ }
         }
-        private bool SaveHistory(string title,string report,bool incomplete)
+        private bool SaveHistory(string title,string report,bool incomplete,BavarianScanSnapshot snapshot=null)
         {
             try
             {
                 Directory.CreateDirectory(HistoryDir);
                 string name=DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff",CultureInfo.InvariantCulture)+"-"+Guid.NewGuid().ToString("N").Substring(0,8)+".txt";
                 File.WriteAllText(Path.Combine(HistoryDir,name),DateTimeOffset.Now.ToString("o",CultureInfo.InvariantCulture)+"\n"+title+(incomplete?" · INCOMPLETE":"")+"\n\n"+report,Encoding.UTF8);
-                foreach(var old in Directory.GetFiles(HistoryDir,"*.txt").OrderByDescending(x=>x,StringComparer.Ordinal).Skip(50))File.Delete(old);
+                if(snapshot!=null)File.WriteAllText(Path.Combine(HistoryDir,Path.ChangeExtension(name,".scan.json")),System.Text.Json.JsonSerializer.Serialize(snapshot),Encoding.UTF8);
+                foreach(var old in Directory.GetFiles(HistoryDir,"*.txt").OrderByDescending(x=>x,StringComparer.Ordinal).Skip(50))
+                {File.Delete(old);var companion=Path.ChangeExtension(old,".scan.json");if(File.Exists(companion))File.Delete(companion);}
                 return true;
             }
             catch(Exception ex){Log("HISTORY FAIL "+ex.GetType().Name);return false;}
