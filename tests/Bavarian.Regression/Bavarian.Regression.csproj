@@ -7,5 +7,7 @@
   <ItemGroup>
     <Compile Include="../../BmwDeepObd/BavarianCbsPresentation.cs" Link="BavarianCbsPresentation.cs" />
     <Compile Include="../../BmwDeepObd/BavarianScanCatalog.cs" Link="BavarianScanCatalog.cs" />
+    <Compile Include="../../BmwDeepObd/BavarianScanSnapshot.cs" Link="BavarianScanSnapshot.cs" />
+    <Compile Include="../../BmwDeepObd/BavarianVehicleOrder.cs" Link="BavarianVehicleOrder.cs" />
   </ItemGroup>
 </Project>
