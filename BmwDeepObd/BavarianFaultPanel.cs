@@ -81,6 +81,9 @@ namespace BmwDeepObd
         {
             _results.RemoveAll(m=>m.Module==module);_results.Add(new ModuleResult{Module=module,Variant=variant,Records=ParseRecords(rows),Details=details,Vin=vin,ExtraNote=note});Render();
         }
+        internal int ReadGroupCount=>_results.Count(m=>m.Records!=null);
+        internal int PlannedGroupCount=>_planned.Length;
+        internal int RelevantRecordCount=>_results.Where(m=>m.Records!=null).Sum(m=>m.Records.Count(r=>State(r)!="32"));
         public string ExportText()
         {
             var lines=new List<string>();
