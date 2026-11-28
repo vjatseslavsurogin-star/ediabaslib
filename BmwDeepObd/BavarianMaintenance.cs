@@ -26,7 +26,7 @@ namespace BmwDeepObd
         private void CreateMaintenance(string mode)
         {
             _maintenanceMode=mode;SupportActionBar?.Hide();
-            BavarianUi.Shell(this,mode=="battery"||mode=="cbs"?3:1,_ru,i=>{if(_busy){_output.Text=T("Stop the request first.","Сначала остановите запрос.");return;}BavarianUi.NavigateHome(this,i);},out _body);
+            BavarianUi.Shell(this,mode=="battery"||mode=="battery_read"||mode=="cbs"||mode=="ima"?3:1,_ru,i=>{if(_busy){_output.Text=T("Stop the request first.","Сначала остановите запрос.");return;}BavarianUi.NavigateHome(this,i);},out _body);
             AddText(mode switch {"battery" or "battery_read"=>T("Battery management","Аккумулятор"),"cbs"=>T("CBS service","Сервис CBS"),"ima"=>T("Injector codes","Коды форсунок"),"mileage"=>T("Mileage check","Проверка пробега"),"glow"=>T("Glow system","Свечи накаливания"),_=>T("ECU information","Информация ECU")},26);
             AddText(mode=="battery_read"?T("DDE 5.0 · IBS · read-only battery diagnostics.","DDE 5.0 · IBS · диагностика АКБ без записи."):mode=="battery"?T("DDE 5.0 · IBS · replacement history. Registration only for a newly installed battery of unchanged type and capacity.","DDE 5.0 · IBS · история замен. Регистрация только нового АКБ прежнего типа и ёмкости."):T("Read-only · approved ECU variants. Park safely, ignition on.","Только чтение · подтверждённые варианты ECU. Стоянка, зажигание включено."),14);
             _state=AddText("",14);
