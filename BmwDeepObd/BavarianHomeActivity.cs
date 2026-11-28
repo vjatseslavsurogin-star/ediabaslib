@@ -249,10 +249,25 @@ namespace BmwDeepObd
                 T("Automatic · VIN profile or full scan","Авто · профиль VIN или полный опрос"),
                 T("Quick · engine and transmission","Быстро · двигатель и АКПП"),
                 T("Full · all 24 candidate groups","Полный · все 24 группы-кандидата"),
-                T("Extended · 10 groups + service checks","Расширенный · 10 групп + сервисные проверки")
+                T("Extended · 10 groups + service checks","Расширенный · 10 групп + сервисные проверки"),
+                T("Select ECU groups","Выбрать группы ECU")
             };
             new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Scan vehicle","Сканирование автомобиля"))
-                .SetItems(labels,(d,a)=>OpenFeature(ids[a.Which])).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
+                .SetItems(labels,(d,a)=>{if(a.Which==ids.Length)ChooseGroups();else OpenFeature(ids[a.Which]);}).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
+        }
+        private void ChooseGroups()
+        {
+            if(!_ready||_opening)return;
+            var groups=BavarianScanCatalog.DiscoveryGroups;
+            var selected=new bool[groups.Length];
+            new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Select ECU groups","Выберите группы ECU"))
+                .SetMultiChoiceItems(groups.Select(BavarianScanCatalog.Module).ToArray(),selected,(d,a)=>selected[a.Which]=a.IsChecked)
+                .SetPositiveButton(T("Continue","Продолжить"),(d,a)=>{
+                    var targets=groups.Where((g,i)=>selected[i]).ToArray();
+                    if(targets.Length==0){Toast.MakeText(this,T("Select at least one group","Выберите хотя бы одну группу"),ToastLength.Short).Show();return;}
+                    if(_opening||!_ready)return;
+                    _opening=true;var intent=new Intent(this,typeof(BavarianVehicleActivity));intent.PutExtra("bavarian_mode","selected_scan");intent.PutExtra("bavarian_groups",targets);StartActivity(intent);
+                }).SetNegativeButton(T("Cancel","Отмена"),(d,a)=>{}).Show();
         }
         private void ShowEquipment()=>ChooseFeature(T("ECU modules","Блоки ECU"),new[]{"discovery","ecu_info"});
         private void ShowEngineData()=>ChooseFeature(T("Engine Live Data","Параметры двигателя"),new[]{"live_engine","injectors"});
