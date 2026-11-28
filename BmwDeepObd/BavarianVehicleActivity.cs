@@ -360,7 +360,7 @@ namespace BmwDeepObd
             Add(_historyButton,ShowHistory);
             var unconfirmed=_faultPanel.UnconfirmedModules();
             var retry=(_lastScanTargets??Array.Empty<string>()).Where(g=>unconfirmed.Contains(BavarianScanCatalog.Module(g))).ToArray();
-            if(retry.Length>0)
+            if(retry.Length>0&&(_retryScan==null||_retryScan.Visibility!=ViewStates.Visible))
             {
                 labels.Add(T("Retry unconfirmed groups","Повторить неподтверждённые группы")+" ("+retry.Length+")");
                 actions.Add(()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Retry scan","Повторное чтение"))
@@ -475,7 +475,7 @@ namespace BmwDeepObd
                 {
                     if(token.IsCancellationRequested)return;
                     mergedRetry=BavarianScanSnapshot.ValidVin(previousVin)&&scanVin==previousVin&&!vinConflict&&previousTargets!=null;
-                    if(!mergedRetry){_lastScanTargets=targets.ToArray();_faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());}
+                    if(!mergedRetry){_lastScanTargets=targets.ToArray();_lastScanVin=null;_faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());}
                     _scanProfileNote=mergedRetry?T("Retry merged with same-VIN session; each group retains its reading time.","Повтор объединён с сессией того же VIN; время чтения каждого блока сохранено."):T("Separate retry; previous VIN could not be verified.","Отдельный повтор: предыдущий VIN не подтверждён.");
                 }
                 foreach(string group in targets)
@@ -599,8 +599,22 @@ namespace BmwDeepObd
             {
                 Directory.CreateDirectory(HistoryDir);
                 string name=DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff",CultureInfo.InvariantCulture)+"-"+Guid.NewGuid().ToString("N").Substring(0,8)+".txt";
-                File.WriteAllText(Path.Combine(HistoryDir,name),DateTimeOffset.Now.ToString("o",CultureInfo.InvariantCulture)+"\n"+title+(incomplete?" · INCOMPLETE":"")+"\n\n"+report,Encoding.UTF8);
-                if(snapshot!=null)File.WriteAllText(Path.Combine(HistoryDir,Path.ChangeExtension(name,".scan.json")),System.Text.Json.JsonSerializer.Serialize(snapshot),Encoding.UTF8);
+                void AtomicWrite(string file,string content)
+                {
+                    string temp=file+".tmp-"+Guid.NewGuid().ToString("N");
+                    try
+                    {
+                        using(var stream=new FileStream(temp,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                        {
+                            byte[] bytes=Encoding.UTF8.GetBytes(content);stream.Write(bytes,0,bytes.Length);stream.Flush(true);
+                        }
+                        File.Move(temp,file);
+                    }
+                    finally{if(File.Exists(temp))File.Delete(temp);}
+                }
+                // Report is written before the optional comparison snapshot.
+                AtomicWrite(Path.Combine(HistoryDir,name),DateTimeOffset.Now.ToString("o",CultureInfo.InvariantCulture)+"\n"+title+(incomplete?" · INCOMPLETE":"")+"\n\n"+report);
+                if(snapshot!=null)AtomicWrite(Path.Combine(HistoryDir,Path.ChangeExtension(name,".scan.json")),System.Text.Json.JsonSerializer.Serialize(snapshot));
                 foreach(var old in Directory.GetFiles(HistoryDir,"*.txt").OrderByDescending(x=>x,StringComparer.Ordinal).Skip(50))
                 {File.Delete(old);var companion=Path.ChangeExtension(old,".scan.json");if(File.Exists(companion))File.Delete(companion);}
                 return true;
