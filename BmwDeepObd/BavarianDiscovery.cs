@@ -20,6 +20,8 @@ namespace BmwDeepObd
         private TextView _discoverySummary;
         private bool _showUnconfirmed;
         private readonly Dictionary<string,(string State,string Detail)> _discoveryResults=new();
+        private readonly Dictionary<string,string> _discoveryIdentities=new();
+        private bool _historicalDiscovery;
         private ISharedPreferences DiscoveryProfile(string vin)=>GetSharedPreferences("bavarian_discovery_"+vin,FileCreationMode.Private);
         private void CreateDiscovery()
         {
@@ -34,6 +36,15 @@ namespace BmwDeepObd
             _discoverySummary=AddText("",15);
             _discoveryCards=new LinearLayout(this){Orientation=Orientation.Vertical};_body.AddView(_discoveryCards);
             _poll=new Java.Lang.Runnable(()=>{if(!_visible)return;RefreshDiscovery();_handler.PostDelayed(_poll,1000);});
+            var savedVin=GetSharedPreferences("bavarian_overview",FileCreationMode.Private).GetString("vin","");
+            if(!string.IsNullOrEmpty(savedVin)&&DiscoveryProfile(savedVin).GetBoolean("saved",false))
+            {
+                _discoveryVin=savedVin;_historicalDiscovery=true;var saved=DiscoveryProfile(savedVin);
+                foreach(var group in BavarianScanCatalog.DiscoveryGroups)
+                    _discoveryResults[group]=(saved.GetString("observed_"+group,"unconfirmed"),saved.GetString("detail_"+group,""));
+                _output.Text=T("Saved profile, not verified in this session: ","Сохранённый профиль, не подтверждён в этой сессии: ")+savedVin+" · "+saved.GetString("time","");
+                RenderDiscovery();
+            }
             RefreshDiscovery();
         }
         private void RefreshDiscovery()
@@ -50,7 +61,7 @@ namespace BmwDeepObd
             if(_busy)return;
             UsbManager manager;BavarianEndpoint device;
             try{manager=Manager;device=GetDevice(manager);if(!Ready(manager,device))return;}catch(Exception ex){_output.Text=Describe(ex);return;}
-            _discoveryVin=null;_discoveryResults.Clear();_discoveryCards.RemoveAllViews();_discoverySummary.Text="";
+            _discoveryVin=null;_historicalDiscovery=false;_discoveryIdentities.Clear();_discoveryResults.Clear();_discoveryCards.RemoveAllViews();_discoverySummary.Text="";
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource(TimeSpan.FromMinutes(8));var token=_cancel.Token;
             RefreshDiscovery();
             string fa=null;
@@ -66,7 +77,7 @@ namespace BmwDeepObd
                         var r=await Task.Run(()=>Execute(manager,device.DeviceName,group,new[]{"IDENT"},null,null,step.Token,false,null,null,false,group=="d_cas.grp",group=="d_cas.grp"));
                         if(token.IsCancellationRequested||!_visible)break;
                         if(string.IsNullOrEmpty(r.Identity))throw new System.IO.IOException("No verified identification");
-                        _discoveryResults[group]=("responded",r.Variant);
+                        _discoveryResults[group]=("responded",r.Variant);_discoveryIdentities[group]=r.Identity;
                         if(group=="d_cas.grp"){_discoveryVin=r.Vin;fa=r.VehicleOrder;}
                         RememberEcuReply(BavarianScanCatalog.Module(group)+" · "+r.Variant);
                     }
@@ -108,7 +119,7 @@ namespace BmwDeepObd
             _discoveryCards.RemoveAllViews();
             var profile=string.IsNullOrEmpty(_discoveryVin)?null:DiscoveryProfile(_discoveryVin);
             int responding=_discoveryResults.Count(x=>x.Value.State=="responded");
-            _discoverySummary.Text=responding+" / "+BavarianScanCatalog.DiscoveryGroups.Length+" · "+T("groups responded (not unique ECUs)","групп ответили (не число отдельных ECU)");
+            _discoverySummary.Text=(_historicalDiscovery?T("Saved: ","Сохранено: "):"")+responding+" / "+BavarianScanCatalog.DiscoveryGroups.Length+" · "+T("groups responded (not unique ECUs)","групп ответили (не число отдельных ECU)");
             _discoveryCards.AddView(BavarianUi.Text(this,T("ECU overview · logical groups, not wiring","Карта ECU · логические группы, не схема шин"),16,true));
             var map=new LinearLayout(this){Orientation=Orientation.Vertical};_discoveryCards.AddView(map);
             LinearLayout mapRow=null;int index=0;
@@ -121,9 +132,21 @@ namespace BmwDeepObd
                 tile.SetPadding(Dp(4),Dp(8),Dp(4),Dp(8));
                 tile.Background=BavarianUi.Shape(this,BavarianUi.Surface,8);
                 tile.SetTextColor(state=="responded"?BavarianUi.Green:state=="unsupported"||owner=="expected"?BavarianUi.Warning:BavarianUi.Muted);
+                tile.Clickable=true;tile.Focusable=true;tile.ContentDescription=BavarianScanCatalog.Module(group)+" · "+state;
+                tile.Click+=(s,e)=>{if(_busy)return;var label=BavarianScanCatalog.Module(group);
+                    var detail=_discoveryResults.TryGetValue(group,out var info)?info.Detail:T("Not checked","Не проверен");
+                    new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(label).SetMessage((_historicalDiscovery?T("Historical response","Исторический ответ"):T("Current discovery","Текущий поиск"))+"\n"+detail)
+                        .SetPositiveButton(T("Read faults","Читать ошибки"),(d,a)=>{if(_busy)return;var intent=new Intent(this,typeof(BavarianVehicleActivity));intent.PutExtra("bavarian_mode","selected_scan");intent.PutExtra("bavarian_groups",new[]{group});StartActivity(intent);})
+                        .SetNegativeButton(T("Close","Закрыть"),(d,a)=>{}).Show();
+                };
                 mapRow.AddView(tile,new LinearLayout.LayoutParams(0,Dp(60),1){RightMargin=Dp(3),BottomMargin=Dp(3)});
             }
             _discoveryCards.AddView(BavarianUi.Text(this,T("Green: responded · amber: expected/unsupported · gray: not confirmed","Зелёный: ответил · янтарный: ожидается/не поддерживается · серый: не подтверждён"),12));
+            if(_discoveryResults.TryGetValue("d_ccc.grp",out var ccc)&&_discoveryResults.TryGetValue("d_mmi.grp",out var mmi)&&ccc.State=="responded"&&mmi.State=="responded"&&ccc.Detail=="ccc_60.prg"&&mmi.Detail=="ccc_60.prg")
+            {
+                bool same=_discoveryIdentities.TryGetValue("d_ccc.grp",out var cccId)&&_discoveryIdentities.TryGetValue("d_mmi.grp",out var mmiId)&&cccId==mmiId;
+                _discoveryCards.AddView(BavarianUi.Text(this,same?T("CCC / MMI: same variant and IDENT fingerprint; possible overlapping routes, not verified physical identity.","CCC / MMI: совпадают вариант и IDENT; возможное пересечение, физический блок не подтверждён."):T("CCC / MMI: same variant; possible overlap. Count as groups only.","CCC / MMI: одинаковый вариант; возможное пересечение. Считаются только группы."),13));
+            }
             var filter=new CheckBox(this){Text=T("Show all candidates (including unknown / absent)","Показать все группы (неизвестные / отсутствующие)"),Checked=_showUnconfirmed};BavarianUi.Checkbox(filter);
             filter.CheckedChange+=(a,b)=>{_showUnconfirmed=b.IsChecked;RenderDiscovery();};_discoveryCards.AddView(filter);
             foreach(var group in BavarianScanCatalog.DiscoveryGroups)
@@ -131,7 +154,7 @@ namespace BmwDeepObd
                 var r=_discoveryResults.TryGetValue(group,out var found)?found:("unconfirmed",T("Not checked","Не проверен"));
                 string owner=profile?.GetString("owner_"+group,"")??"";
                 bool yes=r.Item1=="responded",unsupported=r.Item1=="unsupported";
-                if(!_showUnconfirmed&&!yes&&!unsupported&&owner!="expected")continue;
+                if(!_showUnconfirmed&&!yes&&!unsupported&&owner!="expected"&&owner!="retrofit")continue;
                 string status=yes?T("Responded","Ответил"):unsupported?T("Variant not supported","Вариант не поддерживается"):owner=="absent"?T("Owner: not installed; not confirmed by scan","По данным владельца отсутствует; поиском не подтверждено"):owner=="expected"?T("Expected; response not confirmed","Ожидается; ответ не подтверждён"):T("Presence unconfirmed","Наличие не подтверждено");
                 if(yes&&owner=="absent")status+=T(" · conflicts with owner note"," · противоречит отметке владельца");
                 var card=new LinearLayout(this){Orientation=Orientation.Vertical};card.Background=BavarianUi.Shape(this,BavarianUi.Surface);card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));
@@ -140,8 +163,8 @@ namespace BmwDeepObd
                 card.AddView(BavarianUi.Text(this,r.Item2,12));
                 if(profile!=null)
                 {
-                    string label=owner=="absent"?T("Owner: not installed","Владелец: отсутствует"):owner=="expected"?T("Owner: expected","Владелец: установлен") :T("Owner: unknown","Владелец: неизвестно");
-                    BavarianUi.Action(card,label,(s,e)=>{if(_busy)return;new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(BavarianScanCatalog.Module(group)).SetItems(new[]{T("Unknown","Неизвестно"),T("Installed / expected","Установлен / ожидается"),T("Not installed / removed","Не установлен / демонтирован")},(a,b)=>{profile.Edit().PutString("owner_"+group,new[]{"","expected","absent"}[b.Which]).Apply();RenderDiscovery();}).Show();});
+                    string label=owner=="absent"?T("Owner: not installed","Владелец: отсутствует"):owner=="expected"?T("Owner: expected","Владелец: установлен"):owner=="retrofit"?T("Owner: retrofitted","Владелец: дооснащение"):T("Owner: unknown","Владелец: неизвестно");
+                    BavarianUi.Action(card,label,(s,e)=>{if(_busy)return;new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(BavarianScanCatalog.Module(group)).SetItems(new[]{T("Unknown","Неизвестно"),T("Installed / expected","Установлен / ожидается"),T("Not installed / removed","Не установлен / демонтирован"),T("Retrofitted / aftermarket","Дооснащение / нештатный") },(a,b)=>{profile.Edit().PutString("owner_"+group,new[]{"","expected","absent","retrofit"}[b.Which]).Apply();RenderDiscovery();}).Show();});
                 }
                 _discoveryCards.AddView(card,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
             }
