@@ -148,7 +148,7 @@ namespace BmwDeepObd
                 var scans=new List<BavarianScanSnapshot>();
                 foreach(var file in files)try{var x=Read(file);if(x?.Schema==1&&BavarianScanSnapshot.ValidVin(x.Vin))scans.Add(x);}catch(Exception){}
                 if(scans.Count<2){_state.Text=T("Two new scans with a verified VIN are needed. Include CAS in the scan.","Нужны две новые проверки с подтверждённым VIN. Включите CAS в сканирование.");return;}
-                string Label(BavarianScanSnapshot x)=>x.Time+" · "+x.Vin+(x.Partial?T(" · partial"," · частично"):"");
+                string Label(BavarianScanSnapshot x)=>x.Time+" · "+x.Vin+(x.Partial?T(" · partial"," · частично"):"")+(x.Imported?T(" · restored"," · восстановлено"):"");
                 new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Choose earlier scan","Выберите раннюю проверку")).SetItems(scans.Select(Label).ToArray(),(d,a)=>{
                     var first=scans[a.Which];var later=scans.Skip(a.Which+1).Where(x=>x.Vin==first.Vin).ToArray();
                     if(later.Length==0){_state.Text=T("No later scan with the same verified VIN.","Нет поздней проверки с тем же подтверждённым VIN.");return;}
