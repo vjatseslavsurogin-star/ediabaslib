@@ -30,7 +30,7 @@ namespace BmwDeepObd
             AddText(mode switch {"battery" or "battery_read"=>T("Battery management","Аккумулятор"),"cbs"=>T("CBS service","Сервис CBS"),"ima"=>T("Injector codes","Коды форсунок"),"mileage"=>T("Mileage check","Проверка пробега"),"glow"=>T("Glow system","Свечи накаливания"),_=>T("ECU information","Информация ECU")},26);
             AddText(mode=="battery_read"?T("DDE 5.0 · IBS · read-only battery diagnostics.","DDE 5.0 · IBS · диагностика АКБ без записи."):mode=="battery"?T("DDE 5.0 · IBS · replacement history. Registration only for a newly installed battery of unchanged type and capacity.","DDE 5.0 · IBS · история замен. Регистрация только нового АКБ прежнего типа и ёмкости."):T("Read-only · approved ECU variants. Park safely, ignition on.","Только чтение · подтверждённые варианты ECU. Стоянка, зажигание включено."),14);
             _state=AddText("",14);
-            _maintenanceRead=AddButton(T("Read data","Прочитать данные"),async(s,e)=>await MaintenanceAsync(false));BavarianUi.Style(_maintenanceRead,true);
+            _maintenanceRead=AddButton(mode=="battery_read"||mode=="battery"?T("Read battery status","Прочитать состояние АКБ"):T("Read data","Прочитать данные"),async(s,e)=>await MaintenanceAsync(false));BavarianUi.Style(_maintenanceRead,true);
             if(mode=="battery")
             {
                 _maintenanceWrite=AddButton(T("Register new battery","Зарегистрировать новый АКБ"),(s,e)=>ConfirmBattery());
@@ -41,7 +41,7 @@ namespace BmwDeepObd
             if(mode=="battery_read"||mode=="battery"||mode=="cbs"){_maintenanceCards=new LinearLayout(this){Orientation=Orientation.Vertical};_body.AddView(_maintenanceCards);}
             if(mode=="battery_read")BavarianUi.Action(_body,T("Battery registration · service","Регистрация нового АКБ · сервис"),(s,e)=>{if(_busy)return;var intent=new Intent(this,typeof(BavarianVehicleActivity));intent.PutExtra("bavarian_mode","battery");StartActivity(intent);});
             _output=AddText(T("No readings yet.","Данные ещё не прочитаны."),15);
-            if(_maintenanceCards!=null){_output.Visibility=ViewStates.Gone;AddButton(T("Raw report / hide","Исходный отчёт / скрыть"),(s,e)=>_output.Visibility=_output.Visibility==ViewStates.Visible?ViewStates.Gone:ViewStates.Visible);}
+            if(_maintenanceCards!=null){_output.Visibility=ViewStates.Gone;AddButton(T("Technical details / hide","Технические данные / скрыть"),(s,e)=>_output.Visibility=_output.Visibility==ViewStates.Visible?ViewStates.Gone:ViewStates.Visible);}
             AddButton(T("Share developer report","Поделиться инженерным отчётом"),(s,e)=>ShareReport());
             _poll=new Java.Lang.Runnable(()=>{if(!_visible)return;RefreshMaintenance();_handler.PostDelayed(_poll,1000);});
             RefreshMaintenance();
@@ -102,6 +102,8 @@ namespace BmwDeepObd
         private sealed class MaintenanceResult
         {
             public string Text,Identity;public bool Incomplete;
+            public double? Soc;
+            public string BatteryIbsPart;
             public readonly List<(string Label,string Value)> Cards=new List<(string,string)>();
         }
         private void RenderMaintenanceCards(MaintenanceResult result)
@@ -109,6 +111,41 @@ namespace BmwDeepObd
             if(_maintenanceCards==null)return;
             _maintenanceCards.RemoveAllViews();
             if(result.Incomplete||result.Cards.Count==0)_maintenanceCards.AddView(BavarianUi.Text(this,T("Partial / unavailable data. See raw report.","Неполные / недоступные данные. См. исходный отчёт."),14,true));
+            if(_maintenanceMode=="battery"||_maintenanceMode=="battery_read")
+            {
+                _maintenanceCards.AddView(BavarianUi.Text(this,T("Read at: ","Считано: ")+DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss",CultureInfo.InvariantCulture),12));
+                LinearLayout Tile(string label,string value)
+                {
+                    var c=new LinearLayout(this){Orientation=Orientation.Vertical};c.Background=BavarianUi.Shape(this,BavarianUi.Surface);
+                    c.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));c.AddView(BavarianUi.Text(this,label,12));c.AddView(BavarianUi.Text(this,value,20,true));return c;
+                }
+                string Value(string label)=>result.Cards.FirstOrDefault(x=>x.Label==label).Value??T("Unavailable","Недоступно");
+                var soc=Tile(T("State of charge · SOC","Уровень заряда · SOC"),Value(T("State of charge · SOC","Уровень заряда · SOC")));
+                if(result.Soc.HasValue)
+                {
+                    var gauge=new ProgressBar(this,null,Android.Resource.Attribute.ProgressBarStyleHorizontal){Max=100,Progress=(int)Math.Round(result.Soc.Value)};
+                    gauge.ProgressTintList=Android.Content.Res.ColorStateList.ValueOf(BavarianUi.Blue);soc.AddView(gauge,new LinearLayout.LayoutParams(-1,Dp(8)){TopMargin=Dp(8)});
+                }
+                _maintenanceCards.AddView(soc,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
+                var labels=new[]{T("DDE voltage","Напряжение DDE"),T("Capacity reported by ECU","Ёмкость по данным ECU"),T("SOH · ECU estimate","SOH · оценка ECU"),T("Battery type","Тип АКБ")};
+                for(int i=0;i<4;i+=2)
+                {
+                    var row=new LinearLayout(this){Orientation=Orientation.Horizontal};
+                    for(int j=i;j<i+2;j++)row.AddView(Tile(labels[j],Value(labels[j])),new LinearLayout.LayoutParams(0,-2,1){RightMargin=Dp(4)});
+                    _maintenanceCards.AddView(row,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
+                }
+                void Expand(string title,IEnumerable<(string Label,string Value)> items)
+                {
+                    var panel=new LinearLayout(this){Orientation=Orientation.Vertical,Visibility=ViewStates.Gone};
+                    BavarianUi.Action(_maintenanceCards,title,(s,e)=>panel.Visibility=panel.Visibility==ViewStates.Visible?ViewStates.Gone:ViewStates.Visible);
+                    foreach(var item in items)panel.AddView(Tile(item.Label,item.Value),new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(5)});
+                    _maintenanceCards.AddView(panel);
+                }
+                Expand(T("Replacement history","История замен"),result.Cards.Skip(6));
+                Expand(T("Advanced IBS diagnostics","Расширенная диагностика IBS"),result.Cards.Skip(4).Take(2).Concat(new[]{(T("IBS part number","Номер IBS"),result.BatteryIbsPart??T("Unavailable","Недоступно"))}));
+                _maintenanceCards.AddView(BavarianUi.Text(this,T("SOH is ECU estimate; type and current unavailable in this profile.","SOH — оценка ECU; тип АКБ и ток в этом профиле недоступны."),12));
+                return;
+            }
             foreach(var item in result.Cards)
             {
                 var card=new LinearLayout(this){Orientation=Orientation.Vertical};card.Background=BavarianUi.Shape(this,BavarianUi.Surface);
@@ -179,6 +216,8 @@ namespace BmwDeepObd
                             if(variant!="d50m57e0.prg")throw new IOException("DDE 5.0 required");
                             var ibs=Read("IDENT_IBS");var pm1=Read("STATUS_SYSTEMCHECK_PM_INFO_1");var pm2=Read("STATUS_SYSTEMCHECK_PM_INFO_2");var voltage=Read("STATUS_UBATT");
                             result.Cards.Add((T("State of charge · SOC","Уровень заряда · SOC"),Format(pm2,"STAT_LADUNGSZUSTAND_AKTUELL")));
+                            try{double soc=Number(pm2,"STAT_LADUNGSZUSTAND_AKTUELL","%");if(soc>=0&&soc<=100)result.Soc=soc;}catch(IOException){}
+                            result.BatteryIbsPart=Field(ibs,"ID_BMW_NR");
                             result.Cards.Add((T("DDE voltage","Напряжение DDE"),Format(voltage,"STAT_UBATT")));
                             result.Cards.Add((T("Capacity reported by ECU","Ёмкость по данным ECU"),Format(pm2,"STAT_BATTERIE_KAPAZITAET")));
                             result.Cards.Add((T("SOH · ECU estimate","SOH · оценка ECU"),Format(pm2,"STAT_SOH")));
