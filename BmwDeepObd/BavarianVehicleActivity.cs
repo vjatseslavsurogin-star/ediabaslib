@@ -147,7 +147,7 @@ namespace BmwDeepObd
             if(_faultScreen)
             {
                 AddText(_health?T("Vehicle health check","Комплексная проверка"):_scopedGroups!=null?string.Join(" / ",_scopedGroups.Select(BavarianScanCatalog.Module)):_serviceScreen?T("Service · DDE / EGS","Сервис · DDE / EGS"):_fullScan?T("Vehicle scan · E60","Диагностика автомобиля · E60"):T("Fault codes · DDE / EGS","Ошибки · DDE / EGS"),26);
-                AddText(_health?T("Read-only fault scan and available battery, mileage, CBS and injector records. Not a complete safety or health assessment.","Чтение ошибок и доступных данных АКБ, пробега, CBS и форсунок. Не является полной оценкой исправности или безопасности."):_scopedGroups!=null?T("Read-only fault memory for selected systems.","Чтение памяти ошибок выбранных систем."):_smartScan?T("VIN-matched discovery profile; fallback to standard scan. Park safely, ignition on.","Профиль по VIN; при отсутствии — обычный опрос. Стоянка, зажигание включено."):_fullScan?T("Standard scan of 10 ECU groups. Some may be absent or unsupported. Park safely, ignition on.","Обычный опрос 10 групп ECU. Некоторые блоки могут отсутствовать или не поддерживаться. Стоянка, зажигание включено."):T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
+                AddText(_health?T("Read-only fault scan and available battery, mileage, CBS and injector records. Not a complete safety or health assessment.","Чтение ошибок и доступных данных АКБ, пробега, CBS и форсунок. Не является полной оценкой исправности или безопасности."):_scopedGroups!=null?T("Read-only fault memory for selected systems.","Чтение памяти ошибок выбранных систем."):_smartScan?T("VIN-matched discovery profile; fallback to standard scan. Park safely, ignition on.","Профиль по VIN; при отсутствии — обычный опрос. Стоянка, зажигание включено."):_fullScan?T("Full read-only scan of 24 candidate ECU groups. Groups may overlap; non-response does not prove absence. Park safely, ignition on.","Чтение 24 групп-кандидатов ECU. Группы могут пересекаться; отсутствие ответа не доказывает отсутствие блока. Стоянка, зажигание включено."):T("Read-only scan of engine and transmission. Park safely, ignition on.","Чтение двигателя и АКПП без записи. Автомобиль должен стоять, зажигание включено."),15);
                 _state=AddText("",15);
                 _permission=AddButton(T("Check USB / grant permission","Проверить USB / разрешение"),(s,e)=>RequestUsb());
                 _readDetails=new CheckBox(this){Text=T("Extra fault details · DDE/EGS (test)","Подробности ошибок · DDE/EGS (тест)")};
@@ -409,13 +409,13 @@ namespace BmwDeepObd
             try{manager=Manager;device=GetDevice(manager);}
             catch(Exception ex){_output.Text=Describe(ex);return;}
             if(device==null||!Ready(manager,device)){Refresh();return;}
-            string[] targets=_scopedGroups??(_fullScan?BavarianScanCatalog.AllGroups:new[]{"d_motor.grp","d_egs.grp"});
+            string[] targets=_scopedGroups??(_fullScan?(_smartScan||_health?BavarianScanCatalog.AllGroups:BavarianScanCatalog.DiscoveryGroups):new[]{"d_motor.grp","d_egs.grp"});
             _scanProfileNote="";
             bool details=_readDetails.Checked;
             _faultPanel.BeginScan(targets.Select(BavarianScanCatalog.Module).ToArray());
             _scanIdentities.Clear();_scanDevice=device.DeviceName;
             _busy=true;_activeDevice=device.DeviceName;_cancel=new CancellationTokenSource();
-            _cancel.CancelAfter(TimeSpan.FromMinutes(_smartScan?8:_health?6:_fullScan||(_scopedGroups?.Length??0)>2?3:1));
+            _cancel.CancelAfter(TimeSpan.FromMinutes(_health?6:_fullScan?8:(_scopedGroups?.Length??0)>2?3:1));
             var token=_cancel.Token;
             bool incomplete=false;var extraReports=new List<string>();
             Refresh();_output.Text=T("Reading modules...","Чтение блоков...");
