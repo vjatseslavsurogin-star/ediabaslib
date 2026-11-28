@@ -169,7 +169,7 @@ namespace BmwDeepObd
             {
                 string dir=Path.Combine(FilesDir.AbsolutePath,"bavarian-history");var files=Directory.Exists(dir)?Directory.GetFiles(dir,"*.txt").OrderByDescending(x=>x,StringComparer.Ordinal).ToArray():Array.Empty<string>();
                 if(files.Length==0){_state.Text=T("No saved reports.","Нет сохранённых отчётов.");return;}
-                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetItems(files.Select(Path.GetFileName).ToArray(),(d,a)=>{
+                new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetItems(files.Select(file=>{try{return string.Join(" · ",File.ReadLines(file).Take(2));}catch(Exception){return Path.GetFileName(file);}}).ToArray(),(d,a)=>{
                     try
                     {
                         if(new FileInfo(files[a.Which]).Length>512*1024)throw new IOException("Report exceeds PDF export limit");
@@ -200,7 +200,7 @@ namespace BmwDeepObd
                     page++;var info=new PdfDocument.PageInfo.Builder(595,842,page).Create();var p=pdf.StartPage(info);
                     paint.TextSize=18;p.Canvas.DrawText("BAVARIAN  /  DIAGNOSTICS",40,42,paint);paint.TextSize=10;float y=76;
                     foreach(var line in chunk){p.Canvas.DrawText(line,40,y,paint);y+=14;}
-                    p.Canvas.DrawText("Page "+page,40,810,paint);pdf.FinishPage(p);
+                    p.Canvas.DrawText((_ru?"Страница ":"Page ")+page,40,810,paint);pdf.FinishPage(p);
                 }
                 pdf.WriteTo(output);_state.Text=T("PDF saved.","PDF сохранён.");
             }catch(Exception ex){_state.Text=T("PDF not saved: ","PDF не сохранён: ")+ex.Message;}
