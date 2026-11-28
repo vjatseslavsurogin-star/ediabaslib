@@ -40,11 +40,11 @@ namespace BmwDeepObd
 
         protected override void OnCreate(Bundle savedInstanceState)
         {
-            base.OnCreate(savedInstanceState);
+            BavarianUi.ApplyTheme(this);base.OnCreate(savedInstanceState);
             _ru = BavarianLanguage.IsRussian(this);
             SupportActionBar?.Hide();
             var scroll = new ScrollView(this) { FillViewport = true };
-            scroll.SetFitsSystemWindows(true);
+            scroll.SetFitsSystemWindows(true);scroll.SetBackgroundColor(BavarianUi.Bg);BavarianUi.ApplyWindow(this);
             _body = new LinearLayout(this) { Orientation = Orientation.Vertical };
             _body.SetPadding(Dp(20), Dp(20), Dp(20), Dp(20));
             scroll.AddView(_body);
@@ -65,7 +65,7 @@ namespace BmwDeepObd
 
         private TextView AddText(string text, int size)
         {
-            var v = new TextView(this) { Text = text, TextSize = size };
+            var v = BavarianUi.Text(this,text,size,size>=20);
             var lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.WrapContent);
             lp.TopMargin = Dp(12);
             _body.AddView(v, lp);
@@ -74,7 +74,7 @@ namespace BmwDeepObd
 
         private Button AddButton(string label, EventHandler handler)
         {
-            var b = new Button(this) { Text = label };
+            var b = new Button(this) { Text = label };BavarianUi.Style(b);
             b.Click += handler;
             _body.AddView(b);
             return b;

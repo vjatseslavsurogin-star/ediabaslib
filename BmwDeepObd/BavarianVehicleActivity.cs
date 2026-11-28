@@ -116,7 +116,7 @@ namespace BmwDeepObd
 
         protected override void OnCreate(Bundle savedInstanceState)
         {
-            base.OnCreate(savedInstanceState);
+            BavarianUi.ApplyTheme(this);base.OnCreate(savedInstanceState);
             _ru=BavarianLanguage.IsRussian(this);
             string requested=Intent?.GetStringExtra("bavarian_mode");
             if(IsMaintenanceMode(requested)){CreateMaintenance(requested);return;}
@@ -206,7 +206,7 @@ namespace BmwDeepObd
             _csv=AddButton(T("Export latest CSV","Сохранить последний CSV"),(s,e)=>ExportCsv());
             if(_adaptations)_adaptButton=AddButton(T("Read adaptations · raw ECU fields","Читать адаптации · поля ECU"),async(s,e)=>{if(_identified==null)await RunAsync("IDENT");if(_visible&&!IsFinishing&&!IsDestroyed&&_resolved=="gs19a.prg")await RunAsync("ADAPTATIONS");else _output.Text=T("GS19A required","Требуется GS19A");});
             _panel=new BavarianLivePanel(this,_group=="d_egs.grp");
-            if(_dashboard){var viewMode=AddButton(T("Switch gauges / tiles","Приборы / плитки"),(s,e)=>{if(!_busy)_panel.ToggleGauges();});}
+            if(_dashboard){var viewMode=AddButton(T("View: gauges / tiles / list","Вид: приборы / плитки / список"),(s,e)=>{if(!_busy)_panel.ToggleGauges();});}
             _panel.Visibility=_dashboard?ViewStates.Visible:ViewStates.Gone;
             if(_dashboard)_panel.ShowSelection(_selectedSignals);
             _body.AddView(_panel);

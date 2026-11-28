@@ -145,24 +145,24 @@ namespace BmwDeepObd
                     card.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));card.Background=BavarianUi.Shape(Context,BavarianUi.Surface);
                     var lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)};
                     _cards.AddView(card,lp);
-                    var title=TextLine(card,m.Module+" · "+code,20);title.SetTextColor(Color.White);
+                    var title=TextLine(card,m.Module+" · "+code,20);title.SetTextColor(BavarianUi.Blue);
                     var status=TextLine(card,Status(state),13);
-                    status.SetTextColor(state=="35"?Color.Rgb(255,111,111):state=="33"?Color.Rgb(255,190,92):Color.Rgb(180,192,209));
-                    TextLine(card,Description(m,code,f),16).SetTextColor(Color.White);
+                    status.SetTextColor(state=="35"?BavarianUi.Danger:state=="33"?BavarianUi.Warning:BavarianUi.Muted);
+                    TextLine(card,Description(m,code,f),16).SetTextColor(BavarianUi.White);
                     if(Get(f,"F_VERSION")=="2"&&Get(f,"F_WARNUNG_NR")=="49")
-                        TextLine(card,T("May request a warning lamp; actual MIL state not measured.","Может вызвать контрольную лампу; фактическое состояние MIL не измерено."),13).SetTextColor(Color.Rgb(255,190,92));
+                        TextLine(card,T("May request a warning lamp; actual MIL state not measured.","Может вызвать контрольную лампу; фактическое состояние MIL не измерено."),13).SetTextColor(BavarianUi.Warning);
                     var details=new Button(Context){Text=T("Details  ›","Подробнее  ›")};BavarianUi.Style(details);card.AddView(details);
                     string original=string.Join("\n",f.Select(k=>k.Key+": "+k.Value));
-                    if(state=="")TextLine(card,Get(f,"F_VORHANDEN_TEXT"),13).SetTextColor(Color.Rgb(180,192,209));
+                    if(state=="")TextLine(card,Get(f,"F_VORHANDEN_TEXT"),13).SetTextColor(BavarianUi.Muted);
                     if(int.TryParse(Get(f,"F_ORT_NR"),NumberStyles.Integer,CultureInfo.InvariantCulture,out int codeNum)&&m.Details!=null&&m.Details.TryGetValue(codeNum,out var more)&&more.Count==1)
                     {
                         var d=more[0];
                         if(!string.IsNullOrWhiteSpace(Get(d,"F_PCODE_STRING"))&&Get(d,"F_PCODE_STRING")!="--"&&Get(d,"F_PCODE_STRING")!="??")
-                            TextLine(card,Get(d,"F_PCODE_STRING")+" · "+Get(d,"F_PCODE_TEXT"),14).SetTextColor(Color.White);
+                            TextLine(card,Get(d,"F_PCODE_STRING")+" · "+Get(d,"F_PCODE_TEXT"),14).SetTextColor(BavarianUi.White);
                         if(int.TryParse(Get(d,"F_HFK"),out int count)&&count>=0)
-                            TextLine(card,T("Occurrence count: ","Счётчик возникновения: ")+count,14).SetTextColor(Color.White);
+                            TextLine(card,T("Occurrence count: ","Счётчик возникновения: ")+count,14).SetTextColor(BavarianUi.White);
                         if(long.TryParse(Get(d,"F_UW_KM"),out long km)&&km>=0)
-                            TextLine(card,T("Stored mileage: ","Пробег в памяти: ")+km+" km",14).SetTextColor(Color.White);
+                            TextLine(card,T("Stored mileage: ","Пробег в памяти: ")+km+" km",14).SetTextColor(BavarianUi.White);
                         original+="\n\nFS_LESEN_DETAIL\n"+string.Join("\n",d.Select(k=>k.Key+": "+k.Value));
                     }
                     details.Click+=(s,e)=>new AndroidX.AppCompat.App.AlertDialog.Builder(Context).SetTitle(m.Module+" · "+code)

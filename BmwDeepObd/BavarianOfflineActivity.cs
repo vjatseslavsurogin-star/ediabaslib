@@ -30,7 +30,7 @@ namespace BmwDeepObd
         private string T(string en,string ru)=>_ru?ru:en;
         protected override void OnCreate(Bundle saved)
         {
-            base.OnCreate(saved);SupportActionBar?.Hide();_ru=BavarianLanguage.IsRussian(this);_reports=Intent?.GetBooleanExtra("reports",false)??false;
+            BavarianUi.ApplyTheme(this);base.OnCreate(saved);SupportActionBar?.Hide();_ru=BavarianLanguage.IsRussian(this);_reports=Intent?.GetBooleanExtra("reports",false)??false;
             BavarianUi.Shell(this,_reports?3:2,_ru,i=>BavarianUi.NavigateHome(this,i),out _body);
             _body.AddView(BavarianUi.Text(this,_reports?T("PDF reports","Отчёты PDF"):T("Log viewer","Просмотр логов"),28,true));
             _body.AddView(BavarianUi.Text(this,_reports?T("Local saved reports. May contain identifiers. Export only to a trusted location.","Локальные отчёты. Могут содержать идентификаторы. Сохраняйте в доверенное место."):T("ECU CSV only. Compare the same variant, parameter and unit over elapsed time; driving conditions may differ.","Только ECU CSV. Сравнение одного варианта, параметра и единицы по времени; условия поездок могут отличаться."),13));
@@ -126,7 +126,7 @@ namespace BmwDeepObd
                     for(int i=step;i<series.Length;i+=step){var now=series[i];canvas.DrawLine(X(last),Y(last),X(now),Y(now),_p);last=now;}
                     var end=series[series.Length-1];canvas.DrawLine(X(last),Y(last),X(end),Y(end),_p);
                 }
-                Draw(_a,BavarianUi.Blue);Draw(_b,Color.ParseColor("#F0AF4C"));
+                Draw(_a,BavarianUi.Blue);Draw(_b,BavarianUi.Compare);
             }
         }
         private void ChooseReport()

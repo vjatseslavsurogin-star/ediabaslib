@@ -182,23 +182,23 @@ namespace BmwDeepObd
         {
             base.OnDraw(canvas);
             float d=Resources.DisplayMetrics.Density;
-            canvas.DrawColor(Color.Rgb(22,32,49));
-            _paint.Color=Color.White;_paint.TextSize=13*d;_paint.StrokeWidth=1*d;
+            canvas.DrawColor(BavarianUi.Surface);
+            _paint.Color=BavarianUi.White;_paint.TextSize=13*d;_paint.StrokeWidth=1*d;
             canvas.DrawText(_caption,10*d,18*d,_paint);
             if(_history.Count==0)return;
             double lo=_history.Min(p=>Math.Min(p.A,p.B)),hi=_history.Max(p=>Math.Max(p.A,p.B));
             if(hi-lo<1){lo-=0.5;hi+=0.5;}
             float left=8*d,right=Width-8*d,top=37*d,bottom=Height-25*d;
             if(right<=left||bottom<=top)return;
-            _paint.Color=Color.Rgb(170,186,205);_paint.TextSize=10*d;
+            _paint.Color=BavarianUi.Muted;_paint.TextSize=10*d;
             canvas.DrawText(hi.ToString("0.0",CultureInfo.InvariantCulture),left,32*d,_paint);
             canvas.DrawText(lo.ToString("0.0",CultureInfo.InvariantCulture),left,Height-9*d,_paint);
             for(int i=1;i<_history.Count;i++)
             {
                 float x1=left+(right-left)*(i-1)/Math.Max(1,_history.Count-1),x2=left+(right-left)*i/Math.Max(1,_history.Count-1);
-                _paint.StrokeWidth=2*d;_paint.Color=Color.Rgb(93,177,255);
+                _paint.StrokeWidth=2*d;_paint.Color=BavarianUi.Blue;
                 canvas.DrawLine(x1,bottom-(float)((_history[i-1].A-lo)/(hi-lo))*(bottom-top),x2,bottom-(float)((_history[i].A-lo)/(hi-lo))*(bottom-top),_paint);
-                _paint.Color=Color.Rgb(240,175,76);
+                _paint.Color=BavarianUi.Compare;
                 canvas.DrawLine(x1,bottom-(float)((_history[i-1].B-lo)/(hi-lo))*(bottom-top),x2,bottom-(float)((_history[i].B-lo)/(hi-lo))*(bottom-top),_paint);
             }
         }
@@ -220,8 +220,8 @@ namespace BmwDeepObd
         {
             base.OnDraw(canvas);
             float d=Resources.DisplayMetrics.Density;
-            canvas.DrawColor(Color.Rgb(22,32,49));
-            _p.Color=Color.White;_p.TextSize=13*d;
+            canvas.DrawColor(BavarianUi.Surface);
+            _p.Color=BavarianUi.White;_p.TextSize=13*d;
             canvas.DrawText(_ru?"Коррекции цилиндров · тест":"Cylinder corrections · experimental",8*d,18*d,_p);
             if(_samples.Length!=6){canvas.DrawText(_ru?"Ожидание 6 значений":"Waiting for 6 values",8*d,40*d,_p);return;}
             _p.TextSize=11*d;
@@ -230,17 +230,17 @@ namespace BmwDeepObd
             float left=52*d,right=Width-78*d,mid=(left+right)/2;
             if(right<=left)return;
             float top=48*d,step=(Height-top-10*d)/6;
-            _p.Color=Color.Rgb(135,155,180);_p.StrokeWidth=d;
+            _p.Color=BavarianUi.Muted;_p.StrokeWidth=d;
             canvas.DrawLine(mid,top,mid,Height-8*d,_p);
             for(int i=0;i<6;i++)
             {
                 float y=top+i*step+step*0.68f;
-                _p.Color=Color.White;_p.TextSize=12*d;
+                _p.Color=BavarianUi.White;_p.TextSize=12*d;
                 canvas.DrawText((_ru?"Цил. ":"Cyl. ")+(i+1),8*d,y,_p);
                 float x=mid+(float)(_samples[i].Value/max)*(right-left)/2;
-                _p.Color=Color.Rgb(103,179,255);
+                _p.Color=BavarianUi.Blue;
                 canvas.DrawRect(Math.Min(mid,x),y-13*d,Math.Max(mid,x),y-2*d,_p);
-                _p.Color=Color.White;
+                _p.Color=BavarianUi.White;
                 canvas.DrawText(_samples[i].Value.ToString("+0.00;-0.00;0.00",CultureInfo.InvariantCulture),right+5*d,y,_p);
             }
         }
@@ -260,6 +260,7 @@ namespace BmwDeepObd
             var rect=new RectF(Width/2f-radius,inset,Width/2f+radius,inset+radius*2);
             _paint.SetStyle(Paint.Style.Stroke);_paint.StrokeWidth=5*Resources.DisplayMetrics.Density;_paint.StrokeCap=Paint.Cap.Round;
             _paint.Color=BavarianUi.Line;canvas.DrawArc(rect,180,180,false,_paint);
+            _paint.StrokeWidth=Resources.DisplayMetrics.Density;for(int i=0;i<=10;i++){double a=Math.PI+i*Math.PI/10;float cx=Width/2f,cy=inset+radius;float r=radius-7*Resources.DisplayMetrics.Density;if(r>0)canvas.DrawLine(cx+(float)Math.Cos(a)*r,cy+(float)Math.Sin(a)*r,cx+(float)Math.Cos(a)*(r-4*Resources.DisplayMetrics.Density),cy+(float)Math.Sin(a)*(r-4*Resources.DisplayMetrics.Density),_paint);} _paint.StrokeWidth=5*Resources.DisplayMetrics.Density;
             if(_value.HasValue){_paint.Color=BavarianUi.Blue;canvas.DrawArc(rect,180,(float)(180*Math.Clamp(_value.Value/_max,0,1)),false,_paint);}
         }
     }
@@ -273,23 +274,23 @@ namespace BmwDeepObd
         private readonly Dictionary<string,TextView> _readouts=new Dictionary<string,TextView>();
         private string[] _selection=Array.Empty<string>();
         private readonly Dictionary<string,BavarianGauge> _gauges=new Dictionary<string,BavarianGauge>();
-        private bool _gaugeMode=true;
+        private int _displayMode;
         private readonly bool _gearbox;
         private TextView _slip;
-        public void ToggleGauges(){_gaugeMode=!_gaugeMode;Context.GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private).Edit().PutBoolean("gauges",_gaugeMode).Apply();ShowSelection(_selection);}
+        public void ToggleGauges(){_displayMode=(_displayMode+1)%3;Context.GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private).Edit().PutInt("display_mode",_displayMode).Apply();ShowSelection(_selection);}
         private int Dp(int n)=>(int)(n*Resources.DisplayMetrics.Density+0.5f);
         public BavarianLivePanel(Context context,bool gearbox):base(context)
         {
-            _ru=BavarianLanguage.IsRussian(context);_gearbox=gearbox;_gaugeMode=context.GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private).GetBoolean("gauges",true);
+            _ru=BavarianLanguage.IsRussian(context);_gearbox=gearbox;var prefs=context.GetSharedPreferences("bavarian_dashboard",FileCreationMode.Private);_displayMode=Math.Clamp(prefs.GetInt("display_mode",prefs.GetBoolean("gauges",true)?0:1),0,2);
             Orientation=Orientation.Vertical;
             SetPadding(Dp(0),Dp(10),Dp(0),Dp(10));SetBackgroundColor(BavarianUi.Bg);
-            _title=new TextView(context){TextSize=14};_title.SetTextColor(Color.Rgb(103,179,255));AddView(_title);
+            _title=new TextView(context){TextSize=14};_title.SetTextColor(BavarianUi.Blue);AddView(_title);
             _tiles=new LinearLayout(context){Orientation=Orientation.Vertical};AddView(_tiles);
             if(gearbox){_slip=BavarianUi.Text(context,"",14,true);AddView(_slip);_slip.Visibility=ViewStates.Gone;}
             if(!gearbox)
             {
-                _boost=new BavarianTrend(context,"Boost / mbar · actual blue · target amber");
-                _rail=new BavarianTrend(context,"Rail / bar · actual blue · target amber");
+                _boost=new BavarianTrend(context,"Boost / mbar · actual orange · target contrast");
+                _rail=new BavarianTrend(context,"Rail / bar · actual orange · target contrast");
                 AddView(_boost,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,Dp(150)){TopMargin=Dp(8)});
                 AddView(_rail,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,Dp(150)){TopMargin=Dp(8)});
                 _boost.Visibility=_rail.Visibility=ViewStates.Gone;
@@ -305,7 +306,7 @@ namespace BmwDeepObd
             bool injectors=jobs.Contains(BavarianLiveFrame.InjectorJob);
             if(_cylinders!=null){_cylinders.Visibility=injectors?ViewStates.Visible:ViewStates.Gone;_cylinders.ClearValues();}
             jobs=jobs.Where(j=>j!=BavarianLiveFrame.InjectorJob).ToArray();
-            int columns=Resources.Configuration.Orientation==Android.Content.Res.Orientation.Landscape?3:2;
+            int columns=_displayMode==2?1:Resources.Configuration.Orientation==Android.Content.Res.Orientation.Landscape?3:2;
             LinearLayout row=null;
             for(int i=0;i<jobs.Length;i++)
             {
@@ -314,15 +315,15 @@ namespace BmwDeepObd
                     row=new LinearLayout(Context){Orientation=Orientation.Horizontal};
                     _tiles.AddView(row,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent,ViewGroup.LayoutParams.WrapContent){TopMargin=Dp(8)});
                 }
-                var card=new LinearLayout(Context){Orientation=Orientation.Vertical};card.SetPadding(Dp(10),Dp(9),Dp(10),Dp(9));
+                var card=new LinearLayout(Context){Orientation=_displayMode==2?Orientation.Horizontal:Orientation.Vertical};card.SetGravity(GravityFlags.CenterVertical);card.SetPadding(Dp(10),Dp(9),Dp(10),Dp(9));
                 card.Background=BavarianUi.Shape(Context,BavarianUi.Surface,14);
-                var accent=new View(Context);accent.Background=BavarianUi.Shape(Context,BavarianUi.Blue,2);card.AddView(accent,new LinearLayout.LayoutParams(Dp(24),Dp(3)){BottomMargin=Dp(7)});
+                var accent=new View(Context);accent.Background=BavarianUi.Shape(Context,BavarianUi.Blue,2);if(_displayMode!=2)card.AddView(accent,new LinearLayout.LayoutParams(Dp(24),Dp(3)){BottomMargin=Dp(7)});
                 var lp=new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WrapContent,1);lp.SetMargins(Dp(4),0,Dp(4),0);row.AddView(card,lp);
-                var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12};label.SetMinLines(2);label.SetTextColor(Color.Rgb(178,195,215));card.AddView(label);
-                var readout=BavarianUi.Text(Context,"—",24,true);readout.SetTextColor(BavarianUi.White);card.AddView(readout);
+                var label=new TextView(Context){Text=BavarianLiveFrame.Label(jobs[i],_ru),TextSize=12};label.SetMinLines(_displayMode==2?1:2);label.SetTextColor(BavarianUi.Muted);if(_displayMode==2)card.AddView(label,new LinearLayout.LayoutParams(0,-2,1));else card.AddView(label);
+                var readout=BavarianUi.Text(Context,"—",_displayMode==2?18:24,true);readout.SetTypeface(Typeface.Monospace,TypefaceStyle.Bold);readout.SetTextColor(BavarianUi.White);card.AddView(readout);
                 _readouts[jobs[i]]=readout;
                 double max=jobs[i] switch {"STATUS_MOTORDREHZAHL"=>5000,"STATUS_TURBINENDREHZAHL"=>5000,"STATUS_LADEDRUCK_IST" or "STATUS_LADEDRUCK_SOLL"=>3000,"STATUS_RAILDRUCK_IST" or "STATUS_RAILDRUCK_SOLL"=>2000,"STATUS_KUEHLMITTELTEMPERATUR" or "STATUS_GETRIEBETEMPERATUR"=>130,"STATUS_UBATT" or "STATUS_BATTERIESPANNUNG"=>16,_=>0};
-                if(_gaugeMode&&max>0){var gauge=new BavarianGauge(Context,max);card.AddView(gauge,new LinearLayout.LayoutParams(-1,Dp(64)));_gauges[jobs[i]]=gauge;}
+                if(_displayMode==0&&max>0){var gauge=new BavarianGauge(Context,max);card.AddView(gauge,new LinearLayout.LayoutParams(-1,Dp(64)));_gauges[jobs[i]]=gauge;}
             }
             if(row!=null&&jobs.Length%columns!=0)
                 for(int i=jobs.Length%columns;i<columns;i++)row.AddView(new View(Context),new LinearLayout.LayoutParams(0,1,1));
@@ -372,7 +373,7 @@ namespace BmwDeepObd
         private TextView _status;
         protected override void OnCreate(Bundle savedInstanceState)
         {
-            base.OnCreate(savedInstanceState);
+            BavarianUi.ApplyTheme(this);base.OnCreate(savedInstanceState);
             SupportActionBar?.Hide();
             BavarianUi.Shell(this,2,BavarianLanguage.IsRussian(this),i=>{StopDemo();BavarianUi.NavigateHome(this,i);},out var body);
             body.AddView(BavarianUi.Text(this,"DEMO · SIMULATED DATA · NO VEHICLE CONNECTION",18,true));

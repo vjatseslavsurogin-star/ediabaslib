@@ -31,7 +31,7 @@ namespace BmwDeepObd
         private int Dp(int n)=>BavarianUi.Dp(this,n);
         protected override void OnCreate(Bundle savedInstanceState)
         {
-            base.OnCreate(savedInstanceState);SupportActionBar?.Hide();
+            BavarianUi.ApplyTheme(this);base.OnCreate(savedInstanceState);SupportActionBar?.Hide();
             _ru=BavarianLanguage.IsRussian(this);BavarianLanguage.EnsureEngineEnglish();
             _tab=savedInstanceState?.GetInt("tab",0)??Intent?.GetIntExtra("bavarian_tab",0)??0;
             _system=savedInstanceState?.GetString("system")??"";_systemPage=savedInstanceState?.GetInt("system_page",0)??0;
@@ -48,7 +48,7 @@ namespace BmwDeepObd
             _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"BAVARIAN  /  2.3  ·  PERSONAL",12,true);brand.SetTextColor(BavarianUi.Blue);_body.AddView(brand);
+            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.3.1",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
@@ -64,8 +64,7 @@ namespace BmwDeepObd
             if(_tab==0)
             {
                 var car=Card();
-                var hero=new Android.Graphics.Drawables.GradientDrawable(Android.Graphics.Drawables.GradientDrawable.Orientation.TlBr,new[]{Android.Graphics.Color.ParseColor("#183D72").ToArgb(),Android.Graphics.Color.ParseColor("#13253C").ToArgb()});
-                hero.SetCornerRadius(Dp(18));car.Background=hero;
+                car.Background=BavarianUi.Shape(this,BavarianUi.Surface,18);
                 var profile=BavarianUi.Text(this,T("PERSONAL VEHICLE PROFILE","ЛИЧНЫЙ ПРОФИЛЬ"),11,true);profile.SetTextColor(BavarianUi.Blue);car.AddView(profile);
                 car.AddView(BavarianUi.Text(this,"BMW 530d",30,true));
                 car.AddView(BavarianUi.Text(this,"E60  ·  M57  ·  160 kW  ·  2005",14,true));
@@ -73,6 +72,7 @@ namespace BmwDeepObd
                 var vin=prefs.GetString("vin","");
                 car.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(vin)?T("Profile selected manually · VIN not read","Профиль выбран вручную · VIN не считан"):T("Last read VIN: ","Последний считанный VIN: ")+vin,12));
                 _libraryStatus=BavarianUi.Text(this,"",12);car.AddView(_libraryStatus);
+                var check=BavarianUi.Action(_body,T("Vehicle health check","Комплексная проверка автомобиля"),(s,e)=>OpenFeature("health"),true);_gated.Add(check);
                 if(GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("metrics",true)){
                 Section(T("Last recorded values","Последние записанные данные"));
                 var faults=prefs.GetString("DDE_summary","—");
@@ -82,7 +82,6 @@ namespace BmwDeepObd
                 }
                 Section(T("Quick actions","Быстрые действия"));
                 RenderFavorites();
-                Route(T("Vehicle health check","Комплексная проверка"),T("Read-only · combined report","Только чтение · единый отчёт"),()=>Open("health"));
                 Route(T("Live dashboard","Приборная панель"),T("Engine · DDE","Двигатель · DDE"),()=>Open("live_engine"));
             }
             else if(_tab==1)
@@ -117,6 +116,13 @@ namespace BmwDeepObd
             }
             else
             {
+                Section(T("Appearance","Внешний вид"));
+                var appearance=BavarianUi.Appearance(this);
+                Route(T("Theme","Тема"),appearance=="light"?T("Light","Светлая"):appearance=="dark"?T("Dark","Тёмная"):T("System","Системная"),()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Theme","Тема")).SetSingleChoiceItems(new[]{T("System","Системная"),T("Light","Светлая"),T("Dark","Тёмная")},appearance=="light"?1:appearance=="dark"?2:0,(d,a)=>{GetSharedPreferences("bavarian_home",FileCreationMode.Private).Edit().PutString("appearance",new[]{"system","light","dark"}[a.Which]).Apply();(d as IDialogInterface)?.Dismiss();Recreate();}).Show(),false);
+                AppearanceToggle("compact",T("Compact layout","Компактный интерфейс"),false);
+                AppearanceToggle("fullscreen",T("Full screen · hide status bar","Полный экран · скрыть строку состояния"),false);
+                AppearanceToggle("haptics",T("Haptic feedback","Тактильная отдача"),false);
+                Section(T("General","Общие"));
                 Route(T("Language","Язык"),_ru?"Русский":"English",()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle("Language / Язык").SetSingleChoiceItems(new[]{"English","Русский"},_ru?1:0,(d,a)=>{BavarianLanguage.SetRussian(this,a.Which==1);_ru=a.Which==1;(d as IDialogInterface)?.Dismiss();Render();}).Show(),false);
                 Route(T("Connection type","Тип подключения"),BavarianConnection.IsBluetooth(this)?"Bluetooth · experimental":"K+DCAN",ChooseAdapter,false);
                 Route(T("Connection log","Журнал соединения"),T("Local event history","Локальная история"),()=>new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Connection log","Журнал соединения")).SetMessage(BavarianConnection.History(this)).SetPositiveButton("OK",(d,a)=>{}).Show(),false);
@@ -131,6 +137,12 @@ namespace BmwDeepObd
                 Text("Based on Deep OBD / EdiabasLib · GPL-3.0",12,false,20);
             }
             RefreshStatus();UpdateLibrary();if(animate)BavarianUi.Enter(_body);
+        }
+        private void AppearanceToggle(string key,string label,bool fallback)
+        {
+            var p=GetSharedPreferences("bavarian_home",FileCreationMode.Private);
+            bool enabled=p.GetBoolean(key,fallback);
+            Route(label,enabled?T("Enabled","Включено"):T("Disabled","Выключено"),()=>{p.Edit().PutBoolean(key,!enabled).Apply();Render(false);},false);
         }
         private string SystemName(string id)=>id switch
         {
@@ -251,12 +263,12 @@ namespace BmwDeepObd
         private void Route(string title,string subtitle,Action action,bool gated=true)
         {
             var row=new LinearLayout(this){Orientation=Orientation.Horizontal};row.SetGravity(GravityFlags.CenterVertical);
-            row.Background=BavarianUi.TouchSurface(this,BavarianUi.Surface,14);row.SetPadding(Dp(14),Dp(12),Dp(14),Dp(12));row.SetMinimumHeight(Dp(65));
+            row.Background=BavarianUi.TouchSurface(this,BavarianUi.Surface,14);row.SetPadding(Dp(14),Dp(BavarianUi.Compact(this)?8:12),Dp(14),Dp(BavarianUi.Compact(this)?8:12));row.SetMinimumHeight(Dp(BavarianUi.Compact(this)?54:65));
             var bar=new View(this);bar.Background=BavarianUi.Shape(this,BavarianUi.Blue,2);row.AddView(bar,new LinearLayout.LayoutParams(Dp(3),Dp(30)){RightMargin=Dp(12)});
             var labels=new LinearLayout(this){Orientation=Orientation.Vertical};
             labels.AddView(BavarianUi.Text(this,title,17,true));labels.AddView(BavarianUi.Text(this,subtitle,12));row.AddView(labels,new LinearLayout.LayoutParams(0,-2,1));
             var arrow=BavarianUi.Text(this,"›",24,true);arrow.SetTextColor(BavarianUi.Blue);row.AddView(arrow);
-            row.Clickable=true;row.Focusable=true;row.ContentDescription=title+". "+subtitle;row.Click+=(s,e)=>{if(!gated||_ready)action();};
+            row.Clickable=true;row.Focusable=true;row.ContentDescription=title+". "+subtitle;row.Click+=(s,e)=>{if(!gated||_ready){BavarianUi.Feedback(row);action();}};
             _body.AddView(row,new LinearLayout.LayoutParams(-1,-2){TopMargin=Dp(8)});
             if(gated){_gated.Add(row);row.Enabled=_ready;row.Alpha=_ready?1f:0.55f;}
         }
@@ -274,7 +286,7 @@ namespace BmwDeepObd
             {
                 var c=new LinearLayout(this){Orientation=Orientation.Vertical};c.Background=BavarianUi.Shape(this,BavarianUi.Surface);
                 c.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));c.AddView(BavarianUi.Text(this,label,12));
-                var t=BavarianUi.Text(this,value,16,true);t.SetTextColor(BavarianUi.White);c.AddView(t);
+                var t=BavarianUi.Text(this,value,18,true);t.SetTextColor(BavarianUi.White);c.AddView(t);
                 row.AddView(c,new LinearLayout.LayoutParams(0,-2,1){RightMargin=Dp(4)});
             }
             Metric(label1,value1);Metric(label2,value2);
@@ -311,7 +323,7 @@ namespace BmwDeepObd
                 string state=ready?(bt?"bt selected":"usb ready"):"not ready";
                 if(_lastConnectionState!=state){_lastConnectionState=state;BavarianConnection.Log(this,state);}
                 _usb.Text=ready?(bt?T("● Bluetooth selected · ECU not checked","● Bluetooth выбран · ECU не проверен"):T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен")):T("○ Not connected","○ Нет подключения");
-                _usb.SetTextColor(ready&&!bt?BavarianUi.Green:BavarianUi.Muted);
+                _usb.SetTextColor(ready?BavarianUi.Warning:BavarianUi.Muted);
                 if(_connect!=null){_connect.Visibility=ViewStates.Visible;_connect.Enabled=true;_connect.Text=T("Connect","Подключить");}
             }
             catch(Exception){_usb.Text=T("Connection check failed","Ошибка соединения");}
