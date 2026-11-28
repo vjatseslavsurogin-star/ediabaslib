@@ -117,7 +117,7 @@ namespace BmwDeepObd
                 var state=_discoveryResults.TryGetValue(group,out var observed)?observed.State:"unconfirmed";
                 var owner=profile?.GetString("owner_"+group,"")??"";
                 if(index++%3==0){mapRow=new LinearLayout(this){Orientation=Orientation.Horizontal};map.AddView(mapRow);}
-                var tile=BavarianUi.Text(this,BavarianScanCatalog.Module(group),12,true);tile.SetGravity(GravityFlags.Center);
+                var tile=BavarianUi.Text(this,BavarianScanCatalog.Module(group),12,true);tile.Gravity = GravityFlags.Center;
                 tile.SetPadding(Dp(4),Dp(8),Dp(4),Dp(8));
                 tile.Background=BavarianUi.Shape(this,BavarianUi.Surface,8);
                 tile.SetTextColor(state=="responded"?BavarianUi.Green:state=="unsupported"||owner=="expected"?BavarianUi.Warning:BavarianUi.Muted);
