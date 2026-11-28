@@ -72,6 +72,11 @@ namespace BmwDeepObd
                 var vin=prefs.GetString("vin","");
                 car.AddView(BavarianUi.Text(this,string.IsNullOrEmpty(vin)?T("Profile selected manually · VIN not read","Профиль выбран вручную · VIN не считан"):T("Last read VIN: ","Последний считанный VIN: ")+vin,12));
                 _libraryStatus=BavarianUi.Text(this,"",12);car.AddView(_libraryStatus);
+                Section(T("Last saved scan","Последнее сохранённое чтение"));
+                string scanTime=prefs.GetString("last_scan_time","");
+                MetricPair(T("Fault records*","Записи ошибок*"),prefs.GetString("last_scan_records","—"),T("Groups read","Групп прочитано"),prefs.GetString("last_scan_groups","—"));
+                Text(string.IsNullOrEmpty(scanTime)?T("No new scan saved yet.","Новая проверка ещё не сохранена."):scanTime+" · "+(prefs.GetBoolean("last_scan_partial",false)?T("Partial scan","Частичная проверка"):T("Scan finished","Чтение завершено")),12,false,4);
+                Text(T("*Recognized records excluding not occurred. Historical results; groups can overlap.","*Распознанные записи без не возникавших. История; группы могут пересекаться."),11,false,4);
                 var check=BavarianUi.Action(_body,T("Scan vehicle","Сканировать автомобиль"),(s,e)=>ChooseScan(),true);_gated.Add(check);
                 Route(T("ECU modules","Блоки ECU"),T("Equipment, VIN and vehicle profile","Оборудование, VIN и профиль"),ShowEquipment);
                 if(GetSharedPreferences("bavarian_home",FileCreationMode.Private).GetBoolean("metrics",true)){
