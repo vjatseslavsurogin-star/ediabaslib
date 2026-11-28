@@ -217,7 +217,7 @@ namespace BmwDeepObd
         private void OpenFeature(string id)
         {
             if(_opening||(!Offline(id)&&!_ready))return;
-            if(id=="logs"||id=="pdf"){_opening=true;var i=new Intent(this,typeof(BavarianOfflineActivity));i.PutExtra("reports",id=="pdf");StartActivity(i);}
+            if(id=="logs"||id=="pdf"||id=="history"){_opening=true;var i=new Intent(this,typeof(BavarianOfflineActivity));i.PutExtra("reports",id!="logs");StartActivity(i);}
             else if(id=="demo"){_opening=true;StartActivity(new Intent(this,typeof(BavarianDemoActivity)));}
             else Open(id);
         }
@@ -272,7 +272,7 @@ namespace BmwDeepObd
         }
         private void ShowEquipment()=>ChooseFeature(T("ECU modules","Блоки ECU"),new[]{"discovery","ecu_info"});
         private void ShowEngineData()=>ChooseFeature(T("Engine Live Data","Параметры двигателя"),new[]{"live_engine","injectors"});
-        private void ShowReports()=>ChooseFeature(T("Reports & history","Отчёты и история"),new[]{"history","pdf"});
+        private void ShowReports()=>OpenFeature("pdf");
         private void ChooseFeature(string title,string[] ids)
         {
             var features=ids.Select(id=>Features().First(f=>f.Id==id)).ToArray();
