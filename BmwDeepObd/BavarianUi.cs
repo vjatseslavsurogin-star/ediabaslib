@@ -104,8 +104,8 @@ namespace BmwDeepObd
                 var cell=new LinearLayout(a){Orientation=Orientation.Vertical};cell.SetGravity(GravityFlags.Center);cell.SetPadding(0,Dp(a,5),0,Dp(a,5));
                 var icon=new NavIcon(a,i,i==selected?Blue:Muted);cell.AddView(icon,new LinearLayout.LayoutParams(Dp(a,25),Dp(a,25)));
                 var label=Text(a,labels[i],9,i==selected);label.SetTextColor(i==selected?Blue:Muted);label.Gravity=GravityFlags.Center;cell.AddView(label);
-                cell.Background=TouchSurface(a,i==selected?Selected:Surface,10);cell.ContentDescription=labels[i];cell.Clickable=true;cell.Focusable=true;cell.Click+=(s,e)=>{Feedback(cell);navigate(index);};
-                var indicator=new View(a);indicator.Background=Shape(a,i==selected?Blue:Surface,2);cell.AddView(indicator,new LinearLayout.LayoutParams(Dp(a,18),Dp(a,3)){TopMargin=Dp(a,3)});nav.AddView(cell,new LinearLayout.LayoutParams(0,Dp(a,64),1));
+                cell.Background=new RippleDrawable(ColorStateList.ValueOf(Color.ParseColor("#30FF781F")),Shape(a,i==selected?Selected:Surface,0),null);cell.ContentDescription=labels[i];cell.Clickable=true;cell.Focusable=true;cell.Click+=(s,e)=>{Feedback(cell);navigate(index);};
+                var indicator=new View(a);indicator.Background=Shape(a,i==selected?Blue:Surface,2);cell.AddView(indicator,new LinearLayout.LayoutParams(Dp(a,18),Dp(a,3)){TopMargin=Dp(a,3)});nav.AddView(cell,new LinearLayout.LayoutParams(0,Dp(a,58),1));
             }
             root.AddView(nav,new LinearLayout.LayoutParams(-1,-2));a.SetContentView(root);return root;
         }

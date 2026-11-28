@@ -48,13 +48,13 @@ namespace BmwDeepObd
             _lastRenderSnapshot=OverviewSnapshot();
             _tab=Math.Max(0,Math.Min(4,_tab));_gated.Clear();_libraryStatus=null;_connect=null;
             BavarianUi.Shell(this,_tab,_ru,i=>{if(i!=_tab||_system!=""){_tab=i;_system="";_systemPage=0;Render();}},out _body);
-            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.3.1",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
+            var brand=BavarianUi.Text(this,"B A V A R I A N",24,true);_body.AddView(brand);var edition=BavarianUi.Text(this,"D I A G N O S T I C S   /   2.4 DEV 1",11,true);edition.SetTextColor(BavarianUi.Blue);_body.AddView(edition);
             string[] titles=_ru?new[]{"Автомобиль","Диагностика","Live Data","Сервис","Настройки"}:new[]{"Vehicle","Diagnostics","Live Data","Service","Settings"};
             Text(_tab==1&&_system!=""?SystemName(_system):titles[_tab],30,true,8);
             if(_tab==0)
             {
                 var connection=Card();_usb=BavarianUi.Text(this,"",14,true);connection.AddView(_usb);
-                _connect=BavarianUi.Action(connection,T("Connect","Подключить"),(s,e)=>Connect(),true);
+                _connect=BavarianUi.Action(connection,T("Connect","Подключить"),(s,e)=>{var ep=BavarianConnection.Endpoint(this,Manager);if(BavarianConnection.Ready(this,Manager,ep))ChooseAdapter();else Connect();},true);
             }
             else
             {
@@ -109,7 +109,8 @@ namespace BmwDeepObd
             else if(_tab==3)
             {
                 Section(T("Maintenance & actions","Обслуживание и операции"));
-                FeatureRoute("battery");FeatureRoute("cbs");FeatureRoute("service");
+                FeatureRoute("battery_read");FeatureRoute("cbs");FeatureRoute("service");
+                Section(T("Replacement procedures","Регистрация замен"));FeatureRoute("battery");
                 Text(T("Write operations remain separate and require confirmation. CBS is read-only.","Операции записи требуют отдельного подтверждения. CBS — только чтение."),13,false,12);
                 Section(T("Reports","Отчёты"));
                 FeatureRoute("history");FeatureRoute("pdf");
@@ -192,7 +193,7 @@ namespace BmwDeepObd
             ("glow",T("Glow system","Свечи накаливания"),T("Fault records","Записи ошибок")),
             ("adaptations",T("Transmission adaptations","Адаптации АКПП"),"GS19A · "+T("Read only","Чтение")),
             ("battery_read",T("Battery diagnostics","Диагностика АКБ"),"IBS · SOC / SOH"),
-            ("battery",T("Battery replacement","Замена аккумулятора"),T("Read and register new battery","Чтение и регистрация нового АКБ")),
+            ("battery",T("Register new battery","Регистрация нового АКБ"),T("Read and register new battery","Чтение и регистрация нового АКБ")),
             ("cbs",T("CBS service","Сервисные интервалы"),"CBS · "+T("Read only","Чтение")),
             ("mileage",T("Mileage check","Проверка пробега"),"DDE / KOMBI / CAS"),
             ("ecu_info",T("ECU information","Информация о блоках"),"IDENT · DDE / EGS / KOMBI / CAS"),
@@ -304,7 +305,7 @@ namespace BmwDeepObd
             {
                 var c=new LinearLayout(this){Orientation=Orientation.Vertical};c.Background=BavarianUi.Shape(this,BavarianUi.Surface);
                 c.SetPadding(Dp(12),Dp(10),Dp(12),Dp(10));c.AddView(BavarianUi.Text(this,label,12));
-                var t=BavarianUi.Text(this,value,18,true);t.SetTextColor(BavarianUi.White);c.AddView(t);
+                var parts=value.Split(new[]{'\n'},2);var t=BavarianUi.Text(this,parts[0],18,true);t.SetTextColor(BavarianUi.White);c.AddView(t);if(parts.Length>1)c.AddView(BavarianUi.Text(this,parts[1],11));
                 row.AddView(c,new LinearLayout.LayoutParams(0,-2,1){RightMargin=Dp(4)});
             }
             Metric(label1,value1);Metric(label2,value2);
@@ -342,7 +343,13 @@ namespace BmwDeepObd
                 if(_lastConnectionState!=state){_lastConnectionState=state;BavarianConnection.Log(this,state);}
                 _usb.Text=ready?(bt?T("● Bluetooth selected · ECU not checked","● Bluetooth выбран · ECU не проверен"):T("● Adapter connected · ECU not checked","● Адаптер подключён · ECU не проверен")):T("○ Not connected","○ Нет подключения");
                 _usb.SetTextColor(ready?BavarianUi.Warning:BavarianUi.Muted);
-                if(_connect!=null){_connect.Visibility=ViewStates.Visible;_connect.Enabled=true;_connect.Text=T("Connect","Подключить");}
+                var past=GetSharedPreferences("bavarian_overview",FileCreationMode.Private);
+                string last=past.GetString("last_ecu_reply",""),lastTime=past.GetString("last_ecu_reply_time","");
+                if(!string.IsNullOrEmpty(last))
+                {
+                    _usb.Text=(ready?T("● Adapter available","● Адаптер доступен"):T("○ Not connected","○ Нет подключения"))+"\n"+T("Last successful ECU reply (historical): ","Последний успешный ответ ECU (история): ")+last+" · "+lastTime;
+                }
+                if(_connect!=null){_connect.Visibility=ViewStates.Visible;_connect.Enabled=true;_connect.Text=ready?T("Connection settings","Управление подключением"):T("Connect","Подключить");}
             }
             catch(Exception){_usb.Text=T("Connection check failed","Ошибка соединения");}
         }

@@ -162,7 +162,9 @@ namespace BmwDeepObd
                 _clearEgs=AddButton(T("Clear EGS fault memory","Удалить ошибки EGS"),(s,e)=>ConfirmClear("d_egs.grp"));
                 _historyButton=AddButton(T("Scan history","История диагностики"),(s,e)=>ShowHistory());
                 var share=AddButton(T("Share developer report","Поделиться инженерным отчётом"),(s,e)=>ShareReport());
-                _milButton.Visibility=_clearDde.Visibility=_clearEgs.Visibility=_historyButton.Visibility=share.Visibility=ViewStates.Gone;
+                _milButton.Visibility=_historyButton.Visibility=share.Visibility=ViewStates.Gone;
+                _clearDde.Visibility=_clearEgs.Visibility=ViewStates.Gone;
+                _clearHint=AddText(T("Read DDE and EGS first. Clearing is only available for verified DDE/EGS over USB.","Сначала прочитайте DDE и EGS. Удаление доступно только для подтверждённых DDE/EGS через USB."),12);
                 _actions=AddButton(T("More actions  ···","Действия  ···"),(s,e)=>ShowFaultActions());
                 _poll=new Java.Lang.Runnable(()=>{if(!_visible)return;Refresh();_handler.PostDelayed(_poll,1000);});
                 Refresh();
@@ -263,6 +265,7 @@ namespace BmwDeepObd
             catch(Exception ex){_output.Text=BavarianLanguage.Error("Report sharing failed",ex);}
         }
         private ProgressBar _busyIndicator;
+        private TextView _clearHint;
         private TextView AddText(string text,int size)
         {
             var v=BavarianUi.Text(this,text,size,size>=24);
@@ -296,7 +299,7 @@ namespace BmwDeepObd
             catch(Exception){_state.Text="USB check failed.";ResetIdentity();_cancel?.Cancel();}
             _permission.Enabled=!_busy;
             _permission.Visibility=ViewStates.Gone;
-            _state.SetTextColor(permitted&&!BavarianConnection.IsBluetooth(this)?BavarianUi.Green:BavarianUi.Muted);
+
             if(permitted&&!_busy&&BavarianConnection.IsBluetooth(this)&&_identified==null)_state.Text=T("● Bluetooth selected · experimental","● Bluetooth выбран · тест");
             if(_faultScreen)
             {
@@ -306,8 +309,11 @@ namespace BmwDeepObd
                 _actions.Enabled=!_busy;
                 _readDetails.Enabled=!_busy;
                 _milButton.Enabled=_serviceScreen&&!_busy&&permitted;
-                _clearDde.Enabled=_serviceScreen&&!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_motor.grp");
-                _clearEgs.Enabled=_serviceScreen&&!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
+                _clearDde.Enabled=!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_motor.grp");
+                _clearEgs.Enabled=!_busy&&permitted&&!BavarianConnection.IsBluetooth(this)&&_scanIdentities.ContainsKey("d_egs.grp")&&_scanIdentities.ContainsKey("d_motor.grp");
+                _clearDde.Visibility=!_busy&&(_scopedGroups==null||_scopedGroups.Contains("d_motor.grp"))?ViewStates.Visible:ViewStates.Gone;
+                _clearEgs.Visibility=!_busy&&(_scopedGroups==null||_scopedGroups.Contains("d_egs.grp"))?ViewStates.Visible:ViewStates.Gone;
+                if(_clearHint!=null){_clearHint.Visibility=!_busy&&(_clearDde.Visibility==ViewStates.Visible||_clearEgs.Visibility==ViewStates.Visible)?ViewStates.Visible:ViewStates.Gone;_clearHint.Text=BavarianConnection.IsBluetooth(this)?T("Bluetooth is read-only.","Bluetooth: только чтение."):_scopedGroups!=null&&_scopedGroups.Contains("d_egs.grp")&&!_scanIdentities.ContainsKey("d_motor.grp")?T("To clear EGS, run the DDE + EGS scan first (engine-stop safety check).","Для удаления EGS сначала выполните чтение DDE + EGS (проверка остановки двигателя)."):T("A fresh scan is required. Fault history is saved before clearing; ignition on, engine off.","Нужно свежее чтение. История сохраняется до удаления; зажигание включено, двигатель заглушён.");}
                 _historyButton.Enabled=!_busy;
                 if(!_busy)_state.Text=permitted?(BavarianConnection.IsBluetooth(this)?T("● Bluetooth selected · experimental","● Bluetooth выбран · тест"):T("● Adapter connected · ready to scan","● Адаптер подключён · можно читать")):T("○ Not connected · Home","○ Нет подключения · Главная");
                 return;
@@ -332,7 +338,7 @@ namespace BmwDeepObd
         {
             if(_busy)return;
             var labels=new List<string>();var actions=new List<Action>();
-            void Add(Button button,Action action){if(button.Enabled){labels.Add(button.Text);actions.Add(action);}}
+            void Add(Button button,Action action){if(button.Enabled&&button.Visibility!=ViewStates.Visible){labels.Add(button.Text);actions.Add(action);}}
             Add(_milButton,async()=>await ReadMilAsync());
             Add(_clearDde,()=>ConfirmClear("d_motor.grp"));
             Add(_clearEgs,()=>ConfirmClear("d_egs.grp"));
@@ -425,6 +431,7 @@ namespace BmwDeepObd
                         if(IsFinishing||IsDestroyed||!_visible)break;
                         _faultPanel.AddResult(module,result.Variant,result.FaultRows,result.ExtraDetails,result.Vin,result.ExtraNote);
                         SaveOverview(module,result.FaultRows,result.Vin);
+                        if(!string.IsNullOrEmpty(result.Identity))RememberEcuReply(module+" · "+result.Variant);
                         if((result.Variant=="d50m57e0.prg"||result.Variant=="gs19a.prg")&&!string.IsNullOrEmpty(result.Identity)&&result.FaultRows!=null)_scanIdentities[group]=(result.Variant,result.Identity);
                     }
                     catch(Exception ex)
@@ -486,6 +493,10 @@ namespace BmwDeepObd
                 edit.Apply();
             }
             catch(Exception){ }
+        }
+        private void RememberEcuReply(string label)
+        {
+            try{GetSharedPreferences("bavarian_overview",FileCreationMode.Private).Edit().PutString("last_ecu_reply",label).PutString("last_ecu_reply_time",DateTime.Now.ToString("dd.MM.yyyy HH:mm",CultureInfo.InvariantCulture)).Apply();}catch(Exception){ }
         }
         private void SaveOverview(string module,List<Dictionary<string,string>> rows,string vin)
         {
@@ -590,7 +601,7 @@ namespace BmwDeepObd
         }
         private void ConfirmClear(string group)
         {
-            if(_busy||!_scanIdentities.TryGetValue(group,out var ident))return;
+            if(_busy||!_scanIdentities.TryGetValue(group,out var ident)||!_scanIdentities.ContainsKey("d_motor.grp")||BavarianConnection.IsBluetooth(this))return;
             string module=BavarianScanCatalog.Module(group);
             new AndroidX.AppCompat.App.AlertDialog.Builder(this).SetTitle(T("Clear faults · ","Удалить ошибки · ")+module)
                 .SetMessage(T("Park, ignition ON, engine OFF. Clearing removes fault history and freeze-frame; DDE readiness may reset. Fix causes first. The current memory is saved locally before clearing. This is not a repair.","Стоянка, зажигание включено, двигатель заглушен. Удаляются ошибки и стоп-кадры; готовность OBD DDE может сброситься. Сначала устраните причину. Перед удалением память сохраняется локально. Это не ремонт."))
@@ -678,6 +689,7 @@ namespace BmwDeepObd
                 {
                     _identified=name;_deviceName=device.DeviceName;_fingerprint=result.Identity;_resolved=result.Variant;
                     _detected.Text=T("Detected ECU: ","Определённый блок: ")+result.Variant;
+                    if(!string.IsNullOrEmpty(result.Identity))RememberEcuReply(result.Variant);
                     if(AutoMode)GetSharedPreferences("bavarian_ident",FileCreationMode.Private)?.Edit()?.PutString(_group,result.Variant)?.Apply();
                 }
             }
